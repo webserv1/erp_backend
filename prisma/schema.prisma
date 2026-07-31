@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum MasterType {
+  CATEGORY
+  BRAND
+  COLOR
+  SIZE
+}
+
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  products  Product[]
+  parties   Party[]
+  suppliers Supplier[]
+}
+
+model Role {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  users User[]
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  companyId    Int
+  roleId       Int
+  name         String
+  dateOfBirth  DateTime  @db.Date
+  mobile       String
+  email        String
+  gender       Gender
+  address      String
+  photoUrl     String
+  signatureUrl String
+  panUrl       String
+  aadhaarUrl   String
+  passwordHash String
+  status       Boolean   @default(true)
+  lastLogin    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, email])
+  @@unique([companyId, mobile])
+  @@index([companyId, roleId])
+}
+
+model ProductMaster {
+  id        Int        @id @default(autoincrement())
+  companyId Int
+  type      MasterType
+  name      String
+  status    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  productsAsCategory Product[] @relation("ProductCategory")
+  productsAsBrand    Product[] @relation("ProductBrand")
+  productsAsColor    Product[] @relation("ProductColor")
+  productsAsSize     Product[] @relation("ProductSize")
+
+  @@unique([companyId, type, name])
+  @@index([companyId, type])
+}
+
+model Product {
+  id           Int      @id @default(autoincrement())
+  companyId    Int
+  productCode  String
+  productName  String
+  categoryId   Int
+  brandId      Int
+  colorId      Int
+  sizeId       Int
+  productImage String
+  gst          String
+  itemCode     String
+  status       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category ProductMaster @relation("ProductCategory", fields: [categoryId], references: [id], onDelete: Restrict)
+  brand   ProductMaster @relation("ProductBrand", fields: [brandId], references: [id], onDelete: Restrict)
+  color   ProductMaster @relation("ProductColor", fields: [colorId], references: [id], onDelete: Restrict)
+  size    ProductMaster @relation("ProductSize", fields: [sizeId], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, productCode])
+  @@index([companyId, categoryId])
+  @@index([companyId, brandId])
+  @@index([companyId, colorId])
+  @@index([companyId, sizeId])
+}
+
+model Party {
+  id         Int      @id @default(autoincrement())
+  companyId  Int
+  partyName  String
+  shopName   String
+  mobile     String
+  email      String?
+  address    String
+  city       String
+  state      String
+  country    String
+  pincode    String
+  partyProfit Float  @default(0)
+  status     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, mobile])
+  @@index([companyId])
+}
+
+model Supplier {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  name      String
+  mobile    String
+  email     String?
+  address   String
+  city      String
+  state     String
+  country   String
+  pincode   String
+  status    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, mobile])
+  @@index([companyId])
+}
+
+// Used by express-session via connect-pg-simple.
+model Session {
+  sid    String   @id @db.VarChar(255)
+  sess   Json
+  expire DateTime
+
+  @@index([expire])
+  @@map("session")
+}
