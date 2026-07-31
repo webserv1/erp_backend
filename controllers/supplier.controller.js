@@ -1,6 +1,16 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 
+const normalizeStatus = (status) => {
+  if (typeof status === "boolean") return status;
+  if (typeof status === "string") {
+    const upper = status.trim().toUpperCase();
+    if (upper === "ACTIVE" || upper === "TRUE") return true;
+    if (upper === "INACTIVE" || upper === "FALSE") return false;
+  }
+  return null;
+};
+
 const PUBLIC_SUPPLIER_FIELDS = {
   id: true,
   companyId: true,
@@ -18,8 +28,11 @@ const PUBLIC_SUPPLIER_FIELDS = {
 };
 
 const validateSupplierInput = (body) => {
-  const required = ["name", "mobile", "address", "city", "state", "country", "pincode"];
-  const missing = required.filter((field) => !String(body[field] || "").trim());
+  const required = ["name", "mobile", "address", "city", "state", "country", "pincode", "status"];
+  const missing = required.filter((field) => {
+    const value = body[field];
+    return value === undefined || value === null || (typeof value === "string" && !value.trim());
+  });
 
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
   if (!/^\+?[0-9]{7,15}$/.test(String(body.mobile).trim())) {
@@ -27,6 +40,9 @@ const validateSupplierInput = (body) => {
   }
   if (body.email && !/^\S+@\S+\.\S+$/.test(body.email.trim())) {
     throw new AppError(400, "Enter a valid email address.");
+  }
+  if (normalizeStatus(body.status) === null) {
+    throw new AppError(400, "Status must be ACTIVE or INACTIVE.");
   }
 };
 
@@ -40,6 +56,7 @@ const supplierData = (body, values) => ({
   state: body.state.trim(),
   country: body.country.trim(),
   pincode: String(body.pincode).trim(),
+  status: normalizeStatus(body.status),
 });
 
 exports.getAll = async (req, res) => {
@@ -54,7 +71,11 @@ exports.getAll = async (req, res) => {
     ];
   }
 
-  if (status !== undefined) where.status = status === "true" || status === true;
+  if (status !== undefined) {
+    const normalizedStatus = normalizeStatus(status);
+    if (normalizedStatus === null) throw new AppError(400, "Status must be true, false, ACTIVE, or INACTIVE.");
+    where.status = normalizedStatus;
+  }
 
   const suppliers = await prisma.supplier.findMany({
     where,
@@ -123,6 +144,13 @@ exports.remove = async (req, res) => {
     select: { id: true, companyId: true },
   });
   if (!existing) throw new AppError(404, "Supplier not found.");
+
+  const purchaseCount = await prisma.purchase.count({
+    where: { supplierId: id, companyId: req.auth.companyId },
+  });
+  if (purchaseCount > 0) {
+    throw new AppError(409, "This supplier has purchases and cannot be deleted. Set its status to Inactive instead.");
+  }
 
   await prisma.supplier.delete({ where: { id } });
   return res.json({ message: "Supplier deleted successfully." });

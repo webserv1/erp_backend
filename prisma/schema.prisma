@@ -27,6 +27,11 @@ enum PaymentStatus {
   OVERDUE
 }
 
+enum SaleUnit {
+  PIECES
+  DOZEN
+}
+
 model Company {
   id        Int      @id @default(autoincrement())
   name      String
@@ -38,6 +43,7 @@ model Company {
   parties   Party[]
   suppliers Supplier[]
   purchases Purchase[]
+  sales     Sale[]
 }
 
 model Role {
@@ -86,6 +92,8 @@ model ProductMaster {
   productsAsBrand    Product[] @relation("ProductBrand")
   productsAsColor    Product[] @relation("ProductColor")
   productsAsSize     Product[] @relation("ProductSize")
+  salesAsSize        Sale[]    @relation("SaleSize")
+  salesAsColor       Sale[]    @relation("SaleColor")
 
   @@unique([companyId, type, name])
   @@index([companyId, type])
@@ -160,6 +168,7 @@ model Supplier {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   purchases Purchase[]
+  sales     Sale[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
@@ -179,6 +188,7 @@ model Purchase {
   grandTotal     Decimal       @db.Decimal(12, 2)
   paidAmount     Decimal       @default(0) @db.Decimal(12, 2)
   paymentStatus  PaymentStatus @default(UNPAID)
+  status         Boolean       @default(true)
   remarks        String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -190,6 +200,40 @@ model Purchase {
   @@unique([companyId, purchaseNumber])
   @@index([companyId, supplierId])
   @@index([companyId, paymentStatus])
+  @@index([companyId, status])
+}
+
+model Sale {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  supplierId  Int?
+  supplierName String?
+  supplierMobile String?
+  supplierEmail String?
+  supplierAddress String?
+  productName String
+  productCode String
+  sizeId      Int
+  colorId     Int
+  quantity    Int
+  unit        SaleUnit @default(PIECES)
+  salePrice   Decimal  @db.Decimal(12, 2)
+  purchasePrice Decimal @db.Decimal(12, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  size    ProductMaster @relation("SaleSize", fields: [sizeId], references: [id], onDelete: Restrict)
+  color   ProductMaster @relation("SaleColor", fields: [colorId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, productCode])
+  @@index([companyId, supplierId])
+  @@index([companyId, sizeId])
+  @@index([companyId, colorId])
+  @@index([companyId, status])
 }
 
 // Used by express-session via connect-pg-simple.

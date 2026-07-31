@@ -1,6 +1,16 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 
+const normalizeStatus = (status) => {
+  if (typeof status === "boolean") return status;
+  if (typeof status === "string") {
+    const upper = status.trim().toUpperCase();
+    if (upper === "ACTIVE" || upper === "TRUE") return true;
+    if (upper === "INACTIVE" || upper === "FALSE") return false;
+  }
+  return null;
+};
+
 const PUBLIC_PARTY_FIELDS = {
   id: true,
   companyId: true,
@@ -20,8 +30,11 @@ const PUBLIC_PARTY_FIELDS = {
 };
 
 const validatePartyInput = (body) => {
-  const required = ["partyName", "shopName", "mobile", "address", "city", "state", "country", "pincode"];
-  const missing = required.filter((field) => !String(body[field] || "").trim());
+  const required = ["partyName", "shopName", "mobile", "address", "city", "state", "country", "pincode", "status"];
+  const missing = required.filter((field) => {
+    const value = body[field];
+    return value === undefined || value === null || (typeof value === "string" && !value.trim());
+  });
 
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
   if (!/^\+?[0-9]{7,15}$/.test(String(body.mobile).trim())) {
@@ -32,6 +45,9 @@ const validatePartyInput = (body) => {
   }
   if (body.partyProfit !== undefined && (Number.isNaN(Number(body.partyProfit)) || Number(body.partyProfit) < 0)) {
     throw new AppError(400, "Party profit must be a non-negative number.");
+  }
+  if (normalizeStatus(body.status) === null) {
+    throw new AppError(400, "Status must be ACTIVE or INACTIVE.");
   }
 };
 
@@ -47,6 +63,7 @@ const partyData = (body, values) => ({
   country: body.country.trim(),
   pincode: String(body.pincode).trim(),
   partyProfit: body.partyProfit !== undefined ? Number(body.partyProfit) : 0,
+  status: normalizeStatus(body.status),
 });
 
 exports.getAll = async (req, res) => {
@@ -62,7 +79,11 @@ exports.getAll = async (req, res) => {
     ];
   }
 
-  if (status !== undefined) where.status = status === "true" || status === true;
+  if (status !== undefined) {
+    const normalizedStatus = normalizeStatus(status);
+    if (normalizedStatus === null) throw new AppError(400, "Status must be true, false, ACTIVE, or INACTIVE.");
+    where.status = normalizedStatus;
+  }
 
   const parties = await prisma.party.findMany({
     where,

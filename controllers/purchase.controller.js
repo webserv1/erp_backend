@@ -15,6 +15,7 @@ const PUBLIC_PURCHASE_FIELDS = {
   grandTotal: true,
   paidAmount: true,
   paymentStatus: true,
+  status: true,
   remarks: true,
   createdAt: true,
   updatedAt: true,
@@ -34,6 +35,7 @@ const PUBLIC_PURCHASE_WITH_RELATIONS_FIELDS = {
   grandTotal: true,
   paidAmount: true,
   paymentStatus: true,
+  status: true,
   remarks: true,
   createdAt: true,
   updatedAt: true,
@@ -95,6 +97,7 @@ const purchaseData = (body, values) => ({
   grandTotal: Number(body.grandTotal),
   paidAmount: body.paidAmount !== undefined ? Number(body.paidAmount) : 0,
   paymentStatus: body.paymentStatus ? String(body.paymentStatus).toUpperCase() : "UNPAID",
+  status: body.status !== undefined ? (body.status === true || body.status === "ACTIVE" || body.status === "true") : true,
   remarks: body.remarks ? String(body.remarks).trim() : null,
 });
 
