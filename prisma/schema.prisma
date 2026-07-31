@@ -20,6 +20,13 @@ enum MasterType {
   SIZE
 }
 
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
 model Company {
   id        Int      @id @default(autoincrement())
   name      String
@@ -30,6 +37,7 @@ model Company {
   products  Product[]
   parties   Party[]
   suppliers Supplier[]
+  purchases Purchase[]
 }
 
 model Role {
@@ -59,6 +67,7 @@ model User {
   updatedAt    DateTime  @updatedAt
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  purchases     Purchase[]
 
   @@unique([companyId, email])
   @@unique([companyId, mobile])
@@ -150,9 +159,37 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  purchases Purchase[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
+}
+
+model Purchase {
+  id             Int           @id @default(autoincrement())
+  companyId      Int
+  purchaseNumber String
+  supplierId     Int
+  createdById    Int?
+  invoiceDate    DateTime
+  dueDate        DateTime?
+  subTotal       Decimal       @db.Decimal(12, 2)
+  gstAmount      Decimal       @db.Decimal(12, 2)
+  discount       Decimal       @default(0) @db.Decimal(12, 2)
+  grandTotal     Decimal       @db.Decimal(12, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(12, 2)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  remarks        String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  supplier  Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  createdBy User?    @relation(fields: [createdById], references: [id])
+
+  @@unique([companyId, purchaseNumber])
+  @@index([companyId, supplierId])
+  @@index([companyId, paymentStatus])
 }
 
 // Used by express-session via connect-pg-simple.

@@ -12,6 +12,7 @@ const productMasterRoutes = require("./routes/product-master.routes");
 const productRoutes = require("./routes/product.routes");
 const partyRoutes = require("./routes/party.routes");
 const supplierRoutes = require("./routes/supplier.routes");
+const purchaseRoutes = require("./routes/purchase.routes");
 const AppError = require("./utils/app-error");
 
 dotenv.config();
@@ -66,6 +67,7 @@ app.use("/api/product-masters", productMasterRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/parties", partyRoutes);
 app.use("/api/suppliers", supplierRoutes);
+app.use("/api/purchases", purchaseRoutes);
 
 app.use((req, res, next) => next(new AppError(404, "Route not found.")));
 
