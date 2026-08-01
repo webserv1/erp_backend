@@ -44,6 +44,7 @@ model Company {
   suppliers Supplier[]
   purchases Purchase[]
   sales     Sale[]
+  stocks    Stock[]
 }
 
 model Role {
@@ -94,6 +95,7 @@ model ProductMaster {
   productsAsSize     Product[] @relation("ProductSize")
   salesAsSize        Sale[]    @relation("SaleSize")
   salesAsColor       Sale[]    @relation("SaleColor")
+  stocksAsSize       Stock[]   @relation("StockSize")
 
   @@unique([companyId, type, name])
   @@index([companyId, type])
@@ -233,6 +235,30 @@ model Sale {
   @@index([companyId, supplierId])
   @@index([companyId, sizeId])
   @@index([companyId, colorId])
+  @@index([companyId, status])
+}
+
+model Stock {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  productCode String
+  productName String
+  sizeId      Int
+  qtyIn       Int      @default(0)
+  qtyOut      Int      @default(0)
+  balanceStock Int
+  salePrice   Decimal  @db.Decimal(12, 2)
+  saleValue   Decimal  @db.Decimal(12, 2)
+  remarks     String?
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  size    ProductMaster @relation("StockSize", fields: [sizeId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, productCode])
+  @@index([companyId, sizeId])
   @@index([companyId, status])
 }
 
