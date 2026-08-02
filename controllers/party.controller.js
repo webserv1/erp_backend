@@ -23,7 +23,6 @@ const PUBLIC_PARTY_FIELDS = {
   state: true,
   country: true,
   pincode: true,
-  partyProfit: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -43,9 +42,6 @@ const validatePartyInput = (body) => {
   if (body.email && !/^\S+@\S+\.\S+$/.test(body.email.trim())) {
     throw new AppError(400, "Enter a valid email address.");
   }
-  if (body.partyProfit !== undefined && (Number.isNaN(Number(body.partyProfit)) || Number(body.partyProfit) < 0)) {
-    throw new AppError(400, "Party profit must be a non-negative number.");
-  }
   if (normalizeStatus(body.status) === null) {
     throw new AppError(400, "Status must be ACTIVE or INACTIVE.");
   }
@@ -62,7 +58,6 @@ const partyData = (body, values) => ({
   state: body.state.trim(),
   country: body.country.trim(),
   pincode: String(body.pincode).trim(),
-  partyProfit: body.partyProfit !== undefined ? Number(body.partyProfit) : 0,
   status: normalizeStatus(body.status),
 });
 

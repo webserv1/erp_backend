@@ -1,10 +1,13 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculateSaleTotal } = require("../utils/calculations");
+const { calculatePerSaleProfit, calculateTotalSaleProfit } = require("../utils/salesCalculations");
 
 const PUBLIC_SALE_FIELDS = {
   id: true,
   companyId: true,
+  partyId: true,
+  partyName: true,
   supplierId: true,
   supplierName: true,
   supplierMobile: true,
@@ -19,6 +22,8 @@ const PUBLIC_SALE_FIELDS = {
   salePrice: true,
   purchasePrice: true,
   total: true,
+  perSaleProfit: true,
+  totalSaleProfit: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -27,6 +32,8 @@ const PUBLIC_SALE_FIELDS = {
 const PUBLIC_SALE_WITH_RELATIONS_FIELDS = {
   id: true,
   companyId: true,
+  partyId: true,
+  partyName: true,
   supplierId: true,
   supplierName: true,
   supplierMobile: true,
@@ -41,12 +48,15 @@ const PUBLIC_SALE_WITH_RELATIONS_FIELDS = {
   salePrice: true,
   purchasePrice: true,
   total: true,
+  perSaleProfit: true,
+  totalSaleProfit: true,
   status: true,
   createdAt: true,
   updatedAt: true,
   size: { select: { id: true, name: true } },
   color: { select: { id: true, name: true } },
   supplier: { select: { id: true, name: true, mobile: true } },
+  party: { select: { id: true, partyName: true } },
 };
 
 const validateSaleInput = (body) => {
@@ -94,6 +104,10 @@ const validateSaleInput = (body) => {
   if (body.supplierId && Number.isNaN(parseInt(body.supplierId, 10))) {
     throw new AppError(400, "Invalid supplier id.");
   }
+
+  if (body.partyId && Number.isNaN(parseInt(body.partyId, 10))) {
+    throw new AppError(400, "Invalid party id.");
+  }
 };
 
 const saleData = (body, values) => {
@@ -102,10 +116,14 @@ const saleData = (body, values) => {
   const purchasePrice = Number(body.purchasePrice);
   const unit = String(body.unit).toUpperCase();
   const total = calculateSaleTotal(quantity, salePrice, unit);
+  const perSaleProfit = calculatePerSaleProfit(salePrice, purchasePrice, quantity);
+  const totalSaleProfit = calculateTotalSaleProfit(salePrice, purchasePrice, quantity, unit);
   const status = body.status === true || body.status === "ACTIVE" || body.status === "true";
 
   return {
     ...values,
+    partyId: body.partyId ? parseInt(body.partyId, 10) : null,
+    partyName: body.partyName ? String(body.partyName).trim() : null,
     supplierId: body.supplierId ? parseInt(body.supplierId, 10) : null,
     supplierName: body.supplierName ? String(body.supplierName).trim() : null,
     supplierMobile: body.supplierMobile ? String(body.supplierMobile).trim() : null,
@@ -120,12 +138,14 @@ const saleData = (body, values) => {
     salePrice,
     purchasePrice,
     total,
+    perSaleProfit,
+    totalSaleProfit,
     status,
   };
 };
 
 exports.getAll = async (req, res) => {
-  const { search, sizeId, colorId, supplierId, startDate, endDate } = req.query;
+  const { search, sizeId, colorId, supplierId, partyId, startDate, endDate } = req.query;
 
   const where = { companyId: req.auth.companyId };
 
@@ -139,6 +159,7 @@ exports.getAll = async (req, res) => {
   if (sizeId) where.sizeId = parseInt(sizeId, 10);
   if (colorId) where.colorId = parseInt(colorId, 10);
   if (supplierId) where.supplierId = parseInt(supplierId, 10);
+  if (partyId) where.partyId = parseInt(partyId, 10);
   if (startDate || endDate) {
     where.createdAt = {};
     if (startDate) where.createdAt.gte = new Date(startDate);
@@ -195,6 +216,15 @@ exports.create = async (req, res) => {
     if (supplier.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this supplier.");
   }
 
+  if (req.body.partyId) {
+    const party = await prisma.party.findUnique({
+      where: { id: parseInt(req.body.partyId, 10) },
+      select: { id: true, companyId: true, partyName: true },
+    });
+    if (!party) throw new AppError(404, "Party not found.");
+    if (party.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this party.");
+  }
+
   try {
     const sale = await prisma.sale.create({
       data: saleData(req.body, { companyId: req.auth.companyId }),
@@ -242,6 +272,15 @@ exports.update = async (req, res) => {
     });
     if (!supplier) throw new AppError(404, "Supplier not found.");
     if (supplier.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this supplier.");
+  }
+
+  if (req.body.partyId) {
+    const party = await prisma.party.findUnique({
+      where: { id: parseInt(req.body.partyId, 10) },
+      select: { id: true, companyId: true, partyName: true },
+    });
+    if (!party) throw new AppError(404, "Party not found.");
+    if (party.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this party.");
   }
 
   const sale = await prisma.sale.update({
