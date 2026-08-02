@@ -1,0 +1,1 @@
+ALTER TABLE "Sale" DROP COLUMN "totalSaleProfit";

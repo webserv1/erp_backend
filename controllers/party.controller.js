@@ -86,7 +86,27 @@ exports.getAll = async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
 
-  return res.json({ parties });
+  const partyIds = parties.map((p) => p.id);
+  const profits = await prisma.sale.groupBy({
+    by: ["partyId"],
+    where: {
+      companyId: req.auth.companyId,
+      partyId: { in: partyIds },
+    },
+    _sum: { perSaleProfit: true },
+  });
+
+  const profitMap = {};
+  for (const row of profits) {
+    profitMap[row.partyId] = Number(row._sum.perSaleProfit) || 0;
+  }
+
+  const partiesWithProfit = parties.map((party) => ({
+    ...party,
+    sales_profit: profitMap[party.id] || 0,
+  }));
+
+  return res.json({ parties: partiesWithProfit });
 };
 
 exports.getById = async (req, res) => {
@@ -98,6 +118,16 @@ exports.getById = async (req, res) => {
     select: PUBLIC_PARTY_FIELDS,
   });
   if (!party) throw new AppError(404, "Party not found.");
+
+  const profit = await prisma.sale.aggregate({
+    where: {
+      companyId: req.auth.companyId,
+      partyId: id,
+    },
+    _sum: { perSaleProfit: true },
+  });
+
+  party.sales_profit = Number(profit._sum.perSaleProfit) || 0;
 
   return res.json({ party });
 };

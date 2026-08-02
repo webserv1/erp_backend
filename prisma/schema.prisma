@@ -225,7 +225,6 @@ model Sale {
   purchasePrice Decimal @db.Decimal(12, 2)
   total       Decimal  @db.Decimal(12, 2)
   perSaleProfit Decimal @db.Decimal(12, 2) @default(0)
-  totalSaleProfit Decimal @db.Decimal(12, 2) @default(0)
   status      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

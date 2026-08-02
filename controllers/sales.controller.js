@@ -1,7 +1,7 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculateSaleTotal } = require("../utils/calculations");
-const { calculatePerSaleProfit, calculateTotalSaleProfit } = require("../utils/salesCalculations");
+const { calculatePerSaleProfit } = require("../utils/salesCalculations");
 
 const PUBLIC_SALE_FIELDS = {
   id: true,
@@ -23,7 +23,6 @@ const PUBLIC_SALE_FIELDS = {
   purchasePrice: true,
   total: true,
   perSaleProfit: true,
-  totalSaleProfit: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -49,7 +48,6 @@ const PUBLIC_SALE_WITH_RELATIONS_FIELDS = {
   purchasePrice: true,
   total: true,
   perSaleProfit: true,
-  totalSaleProfit: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -117,7 +115,6 @@ const saleData = (body, values) => {
   const unit = String(body.unit).toUpperCase();
   const total = calculateSaleTotal(quantity, salePrice, unit);
   const perSaleProfit = calculatePerSaleProfit(salePrice, purchasePrice, quantity);
-  const totalSaleProfit = calculateTotalSaleProfit(salePrice, purchasePrice, quantity, unit);
   const status = body.status === true || body.status === "ACTIVE" || body.status === "true";
 
   return {
@@ -139,7 +136,6 @@ const saleData = (body, values) => {
     purchasePrice,
     total,
     perSaleProfit,
-    totalSaleProfit,
     status,
   };
 };
