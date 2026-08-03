@@ -5,7 +5,8 @@ const PUBLIC_PURCHASE_FIELDS = {
   id: true,
   companyId: true,
   purchaseNumber: true,
-  supplierId: true,
+  partyId: true,
+  partyName: true,
   createdById: true,
   invoiceDate: true,
   dueDate: true,
@@ -25,7 +26,8 @@ const PUBLIC_PURCHASE_WITH_RELATIONS_FIELDS = {
   id: true,
   companyId: true,
   purchaseNumber: true,
-  supplierId: true,
+  partyId: true,
+  partyName: true,
   createdById: true,
   invoiceDate: true,
   dueDate: true,
@@ -39,18 +41,17 @@ const PUBLIC_PURCHASE_WITH_RELATIONS_FIELDS = {
   remarks: true,
   createdAt: true,
   updatedAt: true,
-  supplier: { select: { id: true, name: true, mobile: true } },
+  party: { select: { id: true, partyName: true, mobile: true } },
   createdBy: { select: { id: true, name: true } },
 };
 
 const PaymentStatusValues = ["UNPAID", "PARTIAL", "PAID", "OVERDUE"];
 
 const validatePurchaseInput = (body) => {
-  const required = ["purchaseNumber", "supplierId", "invoiceDate", "subTotal", "gstAmount", "grandTotal"];
+  const required = ["purchaseNumber", "partyId", "invoiceDate", "subTotal", "gstAmount", "grandTotal"];
   const missing = required.filter((field) => {
     const val = body[field];
-    if (val === undefined || val === null || val === "") return true;
-    if (typeof val === "string" && !val.trim()) return true;
+    if (val === undefined || val === null || (typeof val === "string" && !val.trim())) return true;
     return false;
   });
 
@@ -63,8 +64,8 @@ const validatePurchaseInput = (body) => {
     }
   }
 
-  if (body.supplierId && Number.isNaN(parseInt(body.supplierId, 10))) {
-    throw new AppError(400, "Invalid supplier id.");
+  if (body.partyId && Number.isNaN(parseInt(body.partyId, 10))) {
+    throw new AppError(400, "Invalid party id.");
   }
 
   if (body.createdById && Number.isNaN(parseInt(body.createdById, 10))) {
@@ -87,7 +88,8 @@ const validatePurchaseInput = (body) => {
 const purchaseData = (body, values) => ({
   ...values,
   purchaseNumber: String(body.purchaseNumber).trim(),
-  supplierId: parseInt(body.supplierId, 10),
+  partyId: body.partyId ? parseInt(body.partyId, 10) : null,
+  partyName: body.partyName ? String(body.partyName).trim() : null,
   createdById: body.createdById ? parseInt(body.createdById, 10) : null,
   invoiceDate: new Date(body.invoiceDate),
   dueDate: body.dueDate ? new Date(body.dueDate) : null,
@@ -102,7 +104,7 @@ const purchaseData = (body, values) => ({
 });
 
 exports.getAll = async (req, res) => {
-  const { search, supplierId, paymentStatus, startDate, endDate } = req.query;
+  const { search, partyId, paymentStatus, startDate, endDate } = req.query;
 
   const where = { companyId: req.auth.companyId };
 
@@ -113,7 +115,7 @@ exports.getAll = async (req, res) => {
     ];
   }
 
-  if (supplierId) where.supplierId = parseInt(supplierId, 10);
+  if (partyId) where.partyId = parseInt(partyId, 10);
   if (paymentStatus) {
     const upper = String(paymentStatus).toUpperCase();
     if (!PaymentStatusValues.includes(upper)) throw new AppError(400, "Invalid payment status.");
@@ -150,12 +152,12 @@ exports.getById = async (req, res) => {
 exports.create = async (req, res) => {
   validatePurchaseInput(req.body);
 
-  const supplier = await prisma.supplier.findUnique({
-    where: { id: parseInt(req.body.supplierId, 10) },
-    select: { id: true, companyId: true },
+  const party = await prisma.party.findUnique({
+    where: { id: parseInt(req.body.partyId, 10) },
+    select: { id: true, companyId: true, partyName: true },
   });
-  if (!supplier) throw new AppError(404, "Supplier not found.");
-  if (supplier.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this supplier.");
+  if (!party) throw new AppError(404, "Party not found.");
+  if (party.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this party.");
 
   try {
     const purchase = await prisma.purchase.create({
@@ -181,12 +183,12 @@ exports.update = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Purchase not found.");
 
-  const supplier = await prisma.supplier.findUnique({
-    where: { id: parseInt(req.body.supplierId, 10) },
-    select: { id: true, companyId: true },
+  const party = await prisma.party.findUnique({
+    where: { id: parseInt(req.body.partyId, 10) },
+    select: { id: true, companyId: true, partyName: true },
   });
-  if (!supplier) throw new AppError(404, "Supplier not found.");
-  if (supplier.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this supplier.");
+  if (!party) throw new AppError(404, "Party not found.");
+  if (party.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to use this party.");
 
   const purchase = await prisma.purchase.update({
     where: { id },

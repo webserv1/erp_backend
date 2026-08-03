@@ -45,6 +45,22 @@ model Company {
   purchases Purchase[]
   sales     Sale[]
   stocks    Stock[]
+  branding  CompanyBranding?
+}
+
+model CompanyBranding {
+  id             Int      @id @default(autoincrement())
+  companyId      Int      @unique
+  logoUrl        String?
+  bgImageUrl     String?
+  faviconUrl     String?
+  primaryColor   String?
+  secondaryColor String?
+  accentColor    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }
 
 model Role {
@@ -148,6 +164,7 @@ model Party {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   sales   Sale[]
+  purchases Purchase[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
@@ -169,8 +186,7 @@ model Supplier {
   updatedAt DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  purchases Purchase[]
-  sales     Sale[]
+  sales   Sale[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
@@ -180,7 +196,8 @@ model Purchase {
   id             Int           @id @default(autoincrement())
   companyId      Int
   purchaseNumber String
-  supplierId     Int
+  partyId        Int?
+  partyName      String?
   createdById    Int?
   invoiceDate    DateTime
   dueDate        DateTime?
@@ -195,12 +212,12 @@ model Purchase {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  supplier  Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  createdBy User?    @relation(fields: [createdById], references: [id])
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  createdBy User? @relation(fields: [createdById], references: [id])
 
   @@unique([companyId, purchaseNumber])
-  @@index([companyId, supplierId])
+  @@index([companyId, partyId])
   @@index([companyId, paymentStatus])
   @@index([companyId, status])
 }
