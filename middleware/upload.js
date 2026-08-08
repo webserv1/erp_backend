@@ -9,8 +9,9 @@ const signatureDirectory = path.join(uploadRoot, "signatures");
 const documentDirectory = path.join(uploadRoot, "documents");
 const productDirectory = path.join(uploadRoot, "products");
 const brandingDirectory = path.join(uploadRoot, "branding");
+const expenseDirectory = path.join(uploadRoot, "expenses");
 
-[photoDirectory, signatureDirectory, documentDirectory, productDirectory, brandingDirectory].forEach((directory) => {
+[photoDirectory, signatureDirectory, documentDirectory, productDirectory, brandingDirectory, expenseDirectory].forEach((directory) => {
   fs.mkdirSync(directory, { recursive: true });
 });
 
@@ -24,7 +25,9 @@ const storage = multer.diskStorage({
           ? productDirectory
           : file.fieldname === "logo" || file.fieldname === "background" || file.fieldname === "favicon"
             ? brandingDirectory
-            : documentDirectory;
+            : file.fieldname === "bill"
+              ? expenseDirectory
+              : documentDirectory;
     callback(null, directory);
   },
   filename: (req, file, callback) => {
@@ -54,4 +57,5 @@ module.exports = upload.fields([
   { name: "logo", maxCount: 1 },
   { name: "background", maxCount: 1 },
   { name: "favicon", maxCount: 1 },
+  { name: "bill", maxCount: 1 },
 ]);

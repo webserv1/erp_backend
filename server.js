@@ -17,6 +17,7 @@ const salesRoutes = require("./routes/sales.routes");
 const stockRoutes = require("./routes/stock.routes");
 const companyRoutes = require("./routes/company.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
+const expenseRoutes = require("./routes/expense.routes");
 const AppError = require("./utils/app-error");
 
 dotenv.config();
@@ -76,6 +77,7 @@ app.use("/api/sales", salesRoutes);
 app.use("/api/stock", stockRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/expenses", expenseRoutes);
 
 app.use((req, res, next) => next(new AppError(404, "Route not found.")));
 

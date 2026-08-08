@@ -46,6 +46,7 @@ model Company {
   sales     Sale[]
   stocks    Stock[]
   branding  CompanyBranding?
+  expenses  Expense[]
 }
 
 model CompanyBranding {
@@ -91,6 +92,7 @@ model User {
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
   purchases     Purchase[]
+  createdExpenses Expense[]
 
   @@unique([companyId, email])
   @@unique([companyId, mobile])
@@ -258,6 +260,26 @@ model Sale {
   @@index([companyId, sizeId])
   @@index([companyId, colorId])
   @@index([companyId, status])
+}
+
+model Expense {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  category    String
+  details     String?
+  amount      Decimal  @db.Decimal(12, 2)
+  paymentMode String
+  billUrl     String?
+  createdById Int?
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy User? @relation(fields: [createdById], references: [id])
+
+  @@index([companyId])
+  @@index([companyId, category])
 }
 
 model Stock {
