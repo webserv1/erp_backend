@@ -5,7 +5,7 @@ const asyncHandler = require("../utils/async-handler");
 
 const router = express.Router();
 
-router.post("/generate", requireAuth, authorizeRoles("ADMIN"), asyncHandler(report.generateReport));
+router.post("/generate", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(report.generateReport));
 router.get("/", requireAuth, asyncHandler(report.getAll));
 router.get("/:id", requireAuth, asyncHandler(report.getById));
 

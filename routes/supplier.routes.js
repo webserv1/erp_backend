@@ -7,8 +7,8 @@ const router = express.Router();
 
 router.get("/", requireAuth, asyncHandler(supplier.getAll));
 router.get("/:id", requireAuth, asyncHandler(supplier.getById));
-router.post("/", requireAuth, authorizeRoles("ADMIN"), asyncHandler(supplier.create));
-router.put("/:id", requireAuth, authorizeRoles("ADMIN"), asyncHandler(supplier.update));
-router.delete("/:id", requireAuth, authorizeRoles("ADMIN"), asyncHandler(supplier.remove));
+router.post("/", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(supplier.create));
+router.put("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(supplier.update));
+router.delete("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(supplier.remove));
 
 module.exports = router;

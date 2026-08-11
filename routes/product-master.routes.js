@@ -6,8 +6,8 @@ const asyncHandler = require("../utils/async-handler");
 const router = express.Router();
 
 router.get("/:type", requireAuth, asyncHandler(auth.getAll));
-router.post("/:type", requireAuth, authorizeRoles("ADMIN"), asyncHandler(auth.create));
-router.put("/:type/:id", requireAuth, authorizeRoles("ADMIN"), asyncHandler(auth.update));
-router.delete("/:type/:id", requireAuth, authorizeRoles("ADMIN"), asyncHandler(auth.remove));
+router.post("/:type", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(auth.create));
+router.put("/:type/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(auth.update));
+router.delete("/:type/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(auth.remove));
 
 module.exports = router;

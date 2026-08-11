@@ -86,6 +86,8 @@ exports.getAll = async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
 
+  if (req.auth.role !== "ADMIN") return res.json({ parties });
+
   const partyIds = parties.map((p) => p.id);
   const profits = await prisma.sale.groupBy({
     by: ["partyId"],
@@ -118,6 +120,8 @@ exports.getById = async (req, res) => {
     select: PUBLIC_PARTY_FIELDS,
   });
   if (!party) throw new AppError(404, "Party not found.");
+
+  if (req.auth.role !== "ADMIN") return res.json({ party });
 
   const profit = await prisma.sale.aggregate({
     where: {

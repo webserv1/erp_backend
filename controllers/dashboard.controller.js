@@ -9,6 +9,7 @@ const getTodayRange = () => {
 
 exports.getDashboard = async (req, res) => {
   const companyId = req.auth.companyId;
+  const isAdmin = req.auth.role === "ADMIN";
   const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 10;
   const { startOfDay, endOfDay } = getTodayRange();
 
@@ -36,14 +37,14 @@ exports.getDashboard = async (req, res) => {
         select: { id: true, productCode: true, productName: true, balanceStock: true, salePrice: true },
         orderBy: { balanceStock: "asc" },
       }),
-      prisma.sale.aggregate({
+      isAdmin ? prisma.sale.aggregate({
         where: todaySaleWhere,
         _sum: { perSaleProfit: true },
-      }),
-      prisma.sale.aggregate({
+      }) : Promise.resolve(null),
+      isAdmin ? prisma.sale.aggregate({
         where: { companyId },
         _sum: { perSaleProfit: true },
-      }),
+      }) : Promise.resolve(null),
       prisma.$queryRaw`
         SELECT DISTINCT ON ("partyId")
           "id", "purchaseNumber", "grandTotal", "createdAt", "partyId", "partyName"
@@ -64,9 +65,9 @@ exports.getDashboard = async (req, res) => {
         purchaseTotal: Number(todayPurchases._sum.grandTotal) || 0,
         saleCount: todaySales._count.id,
         saleTotal: Number(todaySales._sum.total) || 0,
-        salesProfit: Number(todaySalesProfit._sum.perSaleProfit) || 0,
+        ...(isAdmin ? { salesProfit: Number(todaySalesProfit._sum.perSaleProfit) || 0 } : {}),
       },
-      totalSalesProfit: Number(totalSalesProfit._sum.perSaleProfit) || 0,
+      ...(isAdmin ? { totalSalesProfit: Number(totalSalesProfit._sum.perSaleProfit) || 0 } : {}),
       lowStockAlerts: lowStockItems.map((item) => ({
         id: item.id,
         productCode: item.productCode,

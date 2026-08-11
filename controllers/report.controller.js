@@ -1,6 +1,15 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 
+const redactProfitData = (data) => {
+  const { netProfit, salesTrend, sales, ...safeData } = data;
+  const { profit, ...safeSales } = sales;
+  return { ...safeData, sales: safeSales, salesTrend: salesTrend.map(({ profit: trendProfit, ...point }) => point) };
+};
+
+const presentReport = (report, role) =>
+  role === "ADMIN" ? report : { ...report, data: redactProfitData(report.data) };
+
 const getWeekRange = () => {
   const now = new Date();
   const day = now.getDay() || 7;
@@ -169,7 +178,7 @@ exports.generateReport = async (req, res) => {
     },
   });
 
-  return res.status(201).json({ message: "Report generated successfully.", report });
+  return res.status(201).json({ message: "Report generated successfully.", report: presentReport(report, req.auth.role) });
 };
 
 exports.getAll = async (req, res) => {
@@ -193,7 +202,7 @@ exports.getAll = async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
 
-  return res.json({ reports });
+  return res.json({ reports: reports.map((report) => presentReport(report, req.auth.role)) });
 };
 
 exports.getById = async (req, res) => {
@@ -216,5 +225,5 @@ exports.getById = async (req, res) => {
   });
   if (!report) throw new AppError(404, "Report not found.");
 
-  return res.json({ report });
+  return res.json({ report: presentReport(report, req.auth.role) });
 };
