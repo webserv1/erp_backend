@@ -47,6 +47,7 @@ model Company {
   stocks    Stock[]
   branding  CompanyBranding?
   expenses  Expense[]
+  reports   Report[]
 }
 
 model CompanyBranding {
@@ -87,12 +88,15 @@ model User {
   passwordHash String
   status       Boolean   @default(true)
   lastLogin    DateTime?
+  resetToken   String?
+  resetTokenExpiry DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
   purchases     Purchase[]
   createdExpenses Expense[]
+  generatedReports Report[]
 
   @@unique([companyId, email])
   @@unique([companyId, mobile])
@@ -280,6 +284,23 @@ model Expense {
 
   @@index([companyId])
   @@index([companyId, category])
+}
+
+model Report {
+  id           Int      @id @default(autoincrement())
+  companyId    Int
+  type         String
+  periodStart  DateTime
+  periodEnd    DateTime
+  data         Json
+  generatedById Int?
+  createdAt    DateTime @default(now())
+
+  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generatedBy User?   @relation(fields: [generatedById], references: [id])
+
+  @@index([companyId, type])
+  @@index([companyId, periodStart])
 }
 
 model Stock {

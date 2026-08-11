@@ -151,3 +151,94 @@ exports.logout = (req, res, next) => {
     return res.json({ message: "Logout successful." });
   });
 };
+
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    throw new AppError(400, "Current password and new password are required.");
+  }
+  if (newPassword.length < 8) {
+    throw new AppError(400, "New password must contain at least 8 characters.");
+  }
+
+  const user = await prisma.user.findFirst({
+    where: { id: req.auth.sub, companyId: req.auth.companyId },
+    select: { id: true, passwordHash: true },
+  });
+  if (!user) throw new AppError(404, "User not found.");
+
+  const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!isValid) throw new AppError(401, "Current password is incorrect.");
+
+  const newPasswordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_ROUNDS || 12));
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: newPasswordHash },
+  });
+
+  return res.json({ message: "Password changed successfully." });
+};
+
+exports.forgotPassword = async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) throw new AppError(400, "Email is required.");
+
+  const normalizedEmail = normalizeEmail(email);
+  const user = await prisma.user.findFirst({
+    where: { email: normalizedEmail },
+    select: { id: true, companyId: true, name: true, resetToken: true, resetTokenExpiry: true },
+  });
+
+  if (!user) {
+    return res.json({ message: "If an account with that email exists, a reset link has been sent." });
+  }
+
+  const crypto = require("crypto");
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetToken, resetTokenExpiry },
+  });
+
+  return res.json({
+    message: "If an account with that email exists, a reset link has been sent.",
+    resetToken,
+    resetTokenExpiry,
+  });
+};
+
+exports.resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword) {
+    throw new AppError(400, "Reset token and new password are required.");
+  }
+  if (newPassword.length < 8) {
+    throw new AppError(400, "New password must contain at least 8 characters.");
+  }
+
+  const user = await prisma.user.findFirst({
+    where: { resetToken: token },
+    select: { id: true, resetTokenExpiry: true },
+  });
+
+  if (!user) throw new AppError(400, "Invalid or expired reset token.");
+
+  if (user.resetTokenExpiry && new Date() > user.resetTokenExpiry) {
+    throw new AppError(400, "Reset token has expired.");
+  }
+
+  const newPasswordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_ROUNDS || 12));
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: newPasswordHash, resetToken: null, resetTokenExpiry: null },
+  });
+
+  return res.json({ message: "Password reset successfully." });
+};

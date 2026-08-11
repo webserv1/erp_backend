@@ -20,5 +20,8 @@ router.post("/login", loginLimiter, asyncHandler(auth.login));
 router.get("/me", requireAuth, asyncHandler(auth.me));
 router.post("/users", requireAuth, authorizeRoles("ADMIN"), upload, asyncHandler(auth.createCompanyUser));
 router.post("/logout", auth.logout);
+router.post("/change-password", requireAuth, asyncHandler(auth.changePassword));
+router.post("/forgot-password", asyncHandler(auth.forgotPassword));
+router.post("/reset-password", asyncHandler(auth.resetPassword));
 
 module.exports = router;

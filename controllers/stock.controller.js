@@ -56,6 +56,10 @@ const validateStockInput = (body) => {
     throw new AppError(400, "Qty Out must be a non-negative integer.");
   }
 
+  if (parseInt(body.qtyOut, 10) > parseInt(body.qtyIn, 10)) {
+    throw new AppError(400, "Qty Out cannot be greater than Qty In.");
+  }
+
   const salePrice = Number(body.salePrice);
   if (Number.isNaN(salePrice) || salePrice < 0) {
     throw new AppError(400, "Sale price must be a non-negative number.");

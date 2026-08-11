@@ -5,16 +5,25 @@ const requireAuth = (req, res, next) => {
   const header = req.headers.authorization;
   const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
 
-  if (!token) {
-    return next(new AppError(401, "Authentication token is required."));
+  if (token) {
+    try {
+      req.auth = jwt.verify(token, process.env.JWT_SECRET);
+      return next();
+    } catch {
+      return next(new AppError(401, "Invalid or expired authentication token."));
+    }
   }
 
-  try {
-    req.auth = jwt.verify(token, process.env.JWT_SECRET);
+  if (req.session?.user?.id && req.session?.user?.companyId && req.session?.user?.role) {
+    req.auth = {
+      sub: req.session.user.id,
+      companyId: req.session.user.companyId,
+      role: req.session.user.role,
+    };
     return next();
-  } catch {
-    return next(new AppError(401, "Invalid or expired authentication token."));
   }
+
+  return next(new AppError(401, "Authentication token is required."));
 };
 
 const authorizeRoles = (...roles) => (req, res, next) => {

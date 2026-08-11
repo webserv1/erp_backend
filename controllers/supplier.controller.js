@@ -145,13 +145,6 @@ exports.remove = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Supplier not found.");
 
-  const purchaseCount = await prisma.purchase.count({
-    where: { supplierId: id, companyId: req.auth.companyId },
-  });
-  if (purchaseCount > 0) {
-    throw new AppError(409, "This supplier has purchases and cannot be deleted. Set its status to Inactive instead.");
-  }
-
   await prisma.supplier.delete({ where: { id } });
   return res.json({ message: "Supplier deleted successfully." });
 };
