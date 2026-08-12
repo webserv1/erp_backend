@@ -138,6 +138,9 @@ model Product {
   brandId      Int
   colorId      Int
   sizeId       Int
+  brandIds     Int[]    @default([])
+  colorIds     Int[]    @default([])
+  sizeIds      Int[]    @default([])
   productImage String?
   gst          String
   itemCode     String
@@ -176,7 +179,6 @@ model Party {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   sales   Sale[]
-  purchases Purchase[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
@@ -199,6 +201,7 @@ model Supplier {
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   sales   Sale[]
+  purchases Purchase[]
 
   @@unique([companyId, mobile])
   @@index([companyId])
@@ -208,16 +211,17 @@ model Purchase {
   id             Int           @id @default(autoincrement())
   companyId      Int
   purchaseNumber String
-  partyId        Int?
-  partyName      String?
+  supplierId     Int?
+  supplierName   String?
+  productCode    String?
   createdById    Int?
   invoiceDate    DateTime
-  dueDate        DateTime?
   subTotal       Decimal       @db.Decimal(12, 2)
   gstAmount      Decimal       @db.Decimal(12, 2)
   discount       Decimal       @default(0) @db.Decimal(12, 2)
   grandTotal     Decimal       @db.Decimal(12, 2)
   paidAmount     Decimal       @default(0) @db.Decimal(12, 2)
+  remainingBalance Decimal     @default(0) @db.Decimal(12, 2)
   paymentStatus  PaymentStatus @default(UNPAID)
   status         Boolean       @default(true)
   remarks        String?
@@ -225,11 +229,11 @@ model Purchase {
   updatedAt      DateTime      @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdBy User? @relation(fields: [createdById], references: [id])
 
   @@unique([companyId, purchaseNumber])
-  @@index([companyId, partyId])
+  @@index([companyId, supplierId])
   @@index([companyId, paymentStatus])
   @@index([companyId, status])
 }

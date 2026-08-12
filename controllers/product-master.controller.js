@@ -135,6 +135,16 @@ exports.remove = async (req, res) => {
   if (!existing) throw new AppError(404, "Master entry not found.");
   if (existing.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to delete this entry.");
 
+  const productArrayField = { BRAND: "brandIds", COLOR: "colorIds", SIZE: "sizeIds" }[type];
+  if (productArrayField) {
+    const productCount = await prisma.product.count({
+      where: { companyId: req.auth.companyId, [productArrayField]: { has: id } },
+    });
+    if (productCount > 0) {
+      throw new AppError(409, `This ${type.toLowerCase()} is in use by products and cannot be deleted. Remove it from the products first or set it to inactive.`);
+    }
+  }
+
   await prisma.productMaster.delete({ where: { id } });
   return res.json({ message: `${type} deleted successfully.` });
 };
@@ -393,18 +403,21 @@ exports.updateCategory = async (req, res) => {
     const sizesToDelete = existingSizes.filter((s) => !sizeNames.includes(s.name));
 
     if (brandsToDelete.length > 0) {
-      await tx.productMaster.deleteMany({
+      await tx.productMaster.updateMany({
         where: { id: { in: brandsToDelete.map((b) => b.id) } },
+        data: { categoryId: null },
       });
     }
     if (colorsToDelete.length > 0) {
-      await tx.productMaster.deleteMany({
+      await tx.productMaster.updateMany({
         where: { id: { in: colorsToDelete.map((c) => c.id) } },
+        data: { categoryId: null },
       });
     }
     if (sizesToDelete.length > 0) {
-      await tx.productMaster.deleteMany({
+      await tx.productMaster.updateMany({
         where: { id: { in: sizesToDelete.map((s) => s.id) } },
+        data: { categoryId: null },
       });
     }
 
