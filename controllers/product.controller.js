@@ -41,24 +41,47 @@ const PUBLIC_PRODUCT_WITH_RELATIONS_FIELDS = {
 
 const validateProductInput = (body, files) => {
   const required = ["productCode", "productName", "categoryId", "brandId", "colorId", "sizeId", "gst", "itemCode"];
-  const missing = required.filter((field) => !String(body[field] || "").trim());
+
+  const categoryIds = Array.isArray(body.categoryId) ? body.categoryId : [body.categoryId];
+  const brandIds = Array.isArray(body.brandId) ? body.brandId : [body.brandId];
+  const colorIds = Array.isArray(body.colorId) ? body.colorId : [body.colorId];
+  const sizeIds = Array.isArray(body.sizeId) ? body.sizeId : [body.sizeId];
+
+  const missing = required.filter((field) => {
+    const val = field === "categoryId" ? categoryIds[0] :
+      field === "brandId" ? brandIds[0] :
+        field === "colorId" ? colorIds[0] :
+          field === "sizeId" ? sizeIds[0] :
+            body[field];
+    return !val || (typeof val === "string" && !val.trim());
+  });
 
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
-  if (!files?.productImage?.[0]) throw new AppError(400, "A product image is required.");
 };
 
-const productData = (body, files, values) => ({
-  ...values,
-  productCode: body.productCode.trim(),
-  productName: body.productName.trim(),
-  categoryId: parseInt(body.categoryId, 10),
-  brandId: parseInt(body.brandId, 10),
-  colorId: parseInt(body.colorId, 10),
-  sizeId: parseInt(body.sizeId, 10),
-  productImage: `/uploads/products/${files.productImage[0].filename}`,
-  gst: body.gst.trim(),
-  itemCode: body.itemCode.trim(),
-});
+const productData = (body, files, values) => {
+  const categoryId = Array.isArray(body.categoryId) ? body.categoryId[0] : body.categoryId;
+  const brandId = Array.isArray(body.brandId) ? body.brandId[0] : body.brandId;
+  const colorId = Array.isArray(body.colorId) ? body.colorId[0] : body.colorId;
+  const sizeId = Array.isArray(body.sizeId) ? body.sizeId[0] : body.sizeId;
+
+  const productImage = files?.productImage?.[0]
+    ? `/uploads/products/${files.productImage[0].filename}`
+    : undefined;
+
+  return {
+    ...values,
+    productCode: body.productCode.trim(),
+    productName: body.productName.trim(),
+    categoryId: parseInt(categoryId, 10),
+    brandId: parseInt(brandId, 10),
+    colorId: parseInt(colorId, 10),
+    sizeId: parseInt(sizeId, 10),
+    productImage,
+    gst: body.gst.trim(),
+    itemCode: body.itemCode.trim(),
+  };
+};
 
 const masterTypeMap = {
   CATEGORY: "categoryId",
@@ -80,10 +103,22 @@ exports.getAll = async (req, res) => {
     ];
   }
 
-  if (categoryId) where.categoryId = parseInt(categoryId, 10);
-  if (brandId) where.brandId = parseInt(brandId, 10);
-  if (colorId) where.colorId = parseInt(colorId, 10);
-  if (sizeId) where.sizeId = parseInt(sizeId, 10);
+  if (categoryId) {
+    const ids = Array.isArray(categoryId) ? categoryId : [categoryId];
+    where.categoryId = { in: ids.map((id) => parseInt(id, 10)) };
+  }
+  if (brandId) {
+    const ids = Array.isArray(brandId) ? brandId : [brandId];
+    where.brandId = { in: ids.map((id) => parseInt(id, 10)) };
+  }
+  if (colorId) {
+    const ids = Array.isArray(colorId) ? colorId : [colorId];
+    where.colorId = { in: ids.map((id) => parseInt(id, 10)) };
+  }
+  if (sizeId) {
+    const ids = Array.isArray(sizeId) ? sizeId : [sizeId];
+    where.sizeId = { in: ids.map((id) => parseInt(id, 10)) };
+  }
   if (status !== undefined) where.status = status === "true" || status === true;
 
   const products = await prisma.product.findMany({
@@ -111,7 +146,11 @@ exports.getById = async (req, res) => {
 exports.create = async (req, res) => {
   validateProductInput(req.body, req.files);
 
-  const { categoryId, brandId, colorId, sizeId } = req.body;
+  const categoryId = Array.isArray(req.body.categoryId) ? req.body.categoryId[0] : req.body.categoryId;
+  const brandId = Array.isArray(req.body.brandId) ? req.body.brandId[0] : req.body.brandId;
+  const colorId = Array.isArray(req.body.colorId) ? req.body.colorId[0] : req.body.colorId;
+  const sizeId = Array.isArray(req.body.sizeId) ? req.body.sizeId[0] : req.body.sizeId;
+
   const masterIds = {
     [masterTypeMap.CATEGORY]: parseInt(categoryId, 10),
     [masterTypeMap.BRAND]: parseInt(brandId, 10),
@@ -153,7 +192,11 @@ exports.update = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Product not found.");
 
-  const { categoryId, brandId, colorId, sizeId } = req.body;
+  const categoryId = Array.isArray(req.body.categoryId) ? req.body.categoryId[0] : req.body.categoryId;
+  const brandId = Array.isArray(req.body.brandId) ? req.body.brandId[0] : req.body.brandId;
+  const colorId = Array.isArray(req.body.colorId) ? req.body.colorId[0] : req.body.colorId;
+  const sizeId = Array.isArray(req.body.sizeId) ? req.body.sizeId[0] : req.body.sizeId;
+
   const masterIds = {
     [masterTypeMap.CATEGORY]: parseInt(categoryId, 10),
     [masterTypeMap.BRAND]: parseInt(brandId, 10),

@@ -104,13 +104,18 @@ model User {
 }
 
 model ProductMaster {
-  id        Int        @id @default(autoincrement())
-  companyId Int
-  type      MasterType
-  name      String
-  status    Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id             Int           @id @default(autoincrement())
+  companyId      Int
+  type           MasterType
+  name           String
+  categoryId     Int?
+  unit           SaleUnit      @default(PIECES)
+  quantity       Int?
+  purchaseAmount Decimal?
+  saleAmount     Decimal?
+  status         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   productsAsCategory Product[] @relation("ProductCategory")
   productsAsBrand    Product[] @relation("ProductBrand")
   productsAsColor    Product[] @relation("ProductColor")
@@ -121,6 +126,7 @@ model ProductMaster {
 
   @@unique([companyId, type, name])
   @@index([companyId, type])
+  @@index([companyId, categoryId])
 }
 
 model Product {
@@ -132,7 +138,7 @@ model Product {
   brandId      Int
   colorId      Int
   sizeId       Int
-  productImage String
+  productImage String?
   gst          String
   itemCode     String
   status       Boolean  @default(true)
