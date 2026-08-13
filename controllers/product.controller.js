@@ -4,7 +4,8 @@ const AppError = require("../utils/app-error");
 const PRODUCT_SELECT = {
   id: true, companyId: true, productCode: true, productName: true, categoryId: true,
   brandId: true, colorId: true, sizeId: true, brandIds: true, colorIds: true, sizeIds: true,
-  productImage: true, gst: true, itemCode: true, status: true, createdAt: true, updatedAt: true,
+  productImage: true, purchasePrice: true, quantity: true, unit: true, gst: true, itemCode: true,
+  status: true, createdAt: true, updatedAt: true,
   category: { select: { id: true, name: true } },
   brand: { select: { id: true, name: true } },
   color: { select: { id: true, name: true } },
@@ -25,6 +26,8 @@ const toIds = (body, field) => {
 };
 
 const selectedIds = (product, pluralField, singularField) => product[pluralField]?.length ? product[pluralField] : [product[singularField]];
+
+const hasValue = (body, field) => body[field] !== undefined && body[field] !== null && String(body[field]).trim() !== "";
 
 const withSelectedMasters = async (products) => {
   if (!products.length) return products;
@@ -57,6 +60,19 @@ const validateInput = (body) => {
   if (toIds(body, "categoryId").length !== 1) missing.push("categoryId");
   ["brandId", "colorId", "sizeId"].forEach((field) => { if (!toIds(body, field).length) missing.push(field); });
   if (missing.length) throw new AppError(400, "Required fields are missing or invalid.", { fields: missing });
+
+  if (hasValue(body, "unit")) {
+    const upperUnit = String(body.unit).toUpperCase();
+    if (!["PIECES", "DOZEN"].includes(upperUnit)) throw new AppError(400, "Unit must be PIECES or DOZEN.");
+  }
+  if (hasValue(body, "quantity")) {
+    const qty = Number(body.quantity);
+    if (!Number.isInteger(qty) || qty < 0) throw new AppError(400, "Quantity must be a non-negative integer.");
+  }
+  if (hasValue(body, "purchasePrice")) {
+    const price = Number(body.purchasePrice);
+    if (Number.isNaN(price) || price < 0) throw new AppError(400, "Purchase price must be a non-negative number.");
+  }
 };
 
 const dataFrom = (body, files) => {
@@ -68,6 +84,9 @@ const dataFrom = (body, files) => {
     productCode: String(body.productCode).trim(), productName: String(body.productName).trim(), categoryId,
     brandId: brandIds[0], colorId: colorIds[0], sizeId: sizeIds[0], brandIds, colorIds, sizeIds,
     productImage: files?.productImage?.[0] ? `/uploads/products/${files.productImage[0].filename}` : undefined,
+    purchasePrice: hasValue(body, "purchasePrice") ? Number(body.purchasePrice) : undefined,
+    quantity: hasValue(body, "quantity") ? Number.parseInt(body.quantity, 10) : undefined,
+    unit: hasValue(body, "unit") ? String(body.unit).toUpperCase() : undefined,
     gst: String(body.gst).trim(), itemCode: String(body.itemCode).trim(),
   };
 };

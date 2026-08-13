@@ -16,7 +16,7 @@ exports.getDashboard = async (req, res) => {
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
 
-  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, lowStockItems, todaySalesProfit, totalSalesProfit, lastPartyPurchases] =
+  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases,       todaySales, lowStockItems, todaySalesProfit, totalSalesProfit, lastSupplierPurchases] =
     await Promise.all([
       prisma.product.count({ where: { companyId } }),
       prisma.supplier.count({ where: { companyId } }),
@@ -46,11 +46,11 @@ exports.getDashboard = async (req, res) => {
         _sum: { perSaleProfit: true },
       }) : Promise.resolve(null),
       prisma.$queryRaw`
-        SELECT DISTINCT ON ("partyId")
-          "id", "purchaseNumber", "grandTotal", "createdAt", "partyId", "partyName"
+        SELECT DISTINCT ON ("supplierId")
+          "id", "purchaseNumber", "grandTotal", "createdAt", "supplierId", "supplierName"
         FROM "Purchase"
-        WHERE "companyId" = ${companyId} AND "partyId" IS NOT NULL
-        ORDER BY "partyId", "createdAt" DESC
+        WHERE "companyId" = ${companyId} AND "supplierId" IS NOT NULL
+        ORDER BY "supplierId", "createdAt" DESC
       `,
     ]);
 
@@ -75,13 +75,13 @@ exports.getDashboard = async (req, res) => {
         balanceStock: item.balanceStock,
         salePrice: Number(item.salePrice),
       })),
-      lastPartyPurchases: lastPartyPurchases.map((purchase) => ({
+      lastSupplierPurchases: lastSupplierPurchases.map((purchase) => ({
         id: purchase.id,
         purchaseNumber: purchase.purchaseNumber,
         grandTotal: Number(purchase.grandTotal),
         createdAt: purchase.createdAt,
-        partyId: purchase.partyId,
-        partyName: purchase.partyName,
+        supplierId: purchase.supplierId,
+        supplierName: purchase.supplierName,
       })),
     },
   });

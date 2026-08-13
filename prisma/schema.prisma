@@ -142,7 +142,10 @@ model Product {
   colorIds     Int[]    @default([])
   sizeIds      Int[]    @default([])
   productImage String?
-  gst          String
+  purchasePrice Decimal?
+  quantity      Int?
+  unit          SaleUnit @default(PIECES)
+  gst           String
   itemCode     String
   status       Boolean  @default(true)
   createdAt    DateTime @default(now())
