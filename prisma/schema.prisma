@@ -6,6 +6,354 @@ datasource db {
   provider = "postgresql"
 }
 
+model Company {
+  name      String
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  status    Boolean          @default(true)
+  id        Int              @id @default(autoincrement())
+  branding  CompanyBranding?
+  expenses  Expense[]
+  parties   Party[]
+  products  Product[]
+  purchases Purchase[]
+  reports   Report[]
+  sales     Sale[]
+  stocks    Stock[]
+  suppliers Supplier[]
+  users     User[]
+}
+
+model CompanyBranding {
+  id             Int      @id @default(autoincrement())
+  companyId      Int      @unique(map: "CompanyBranding_companyId_unique")
+  logoUrl        String?
+  bgImageUrl     String?
+  faviconUrl     String?
+  primaryColor   String?
+  secondaryColor String?
+  accentColor    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model Role {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  users User[]
+}
+
+model User {
+  email            String
+  passwordHash     String
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  lastLogin        DateTime?
+  name             String
+  roleId           Int
+  status           Boolean    @default(true)
+  id               Int        @id @default(autoincrement())
+  companyId        Int
+  dateOfBirth      DateTime   @db.Date
+  mobile           String
+  gender           Gender
+  address          String
+  photoUrl         String
+  signatureUrl     String
+  aadhaarUrl       String
+  panUrl           String
+  resetToken       String?
+  resetTokenExpiry DateTime?
+  createdExpenses  Expense[]
+  purchases        Purchase[]
+  generatedReports Report[]
+  company          Company    @relation(fields: [companyId], references: [id])
+  role             Role       @relation(fields: [roleId], references: [id])
+
+  @@unique([companyId, email])
+  @@unique([companyId, mobile])
+  @@index([companyId, roleId])
+  @@index([resetToken])
+}
+
+model ProductMaster {
+  id                               Int        @id @default(autoincrement())
+  companyId                        Int
+  type                             MasterType
+  name                             String
+  status                           Boolean    @default(true)
+  createdAt                        DateTime   @default(now())
+  updatedAt                        DateTime   @updatedAt
+  categoryId                       Int?
+  quantity                         Int?
+  purchaseAmount                   Float?
+  saleAmount                       Float?
+  unit                             SaleUnit   @default(PIECES)
+  productsAsBrand                  Product[]  @relation("ProductBrand")
+  productsAsCategory               Product[]  @relation("ProductCategory")
+  productsAsColor                  Product[]  @relation("ProductColor")
+  productsAsSize                   Product[]  @relation("ProductSize")
+  Sale_Sale_brandIdToProductMaster Sale[]     @relation("Sale_brandIdToProductMaster")
+  salesAsColor                     Sale[]     @relation("SaleColor")
+  salesAsSize                      Sale[]     @relation("SaleSize")
+  saleBrands                       SaleBrand[]
+  saleColors                       SaleColor[]
+  saleSizes                        SaleSize[]
+  stocksAsSize                     Stock[]    @relation("StockSize")
+
+  @@unique([companyId, type, name])
+  @@index([companyId, type])
+  @@index([companyId, categoryId])
+}
+
+model Product {
+  id            Int           @id @default(autoincrement())
+  companyId     Int
+  productCode   String
+  productName   String
+  categoryId    Int
+  brandId       Int
+  colorId       Int
+  sizeId        Int
+  productImage  String?
+  gst           String
+  itemCode      String
+  status        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  brandIds      Int[]         @default([])
+  colorIds      Int[]         @default([])
+  sizeIds       Int[]         @default([])
+  quantity      Int?
+  unit          SaleUnit      @default(PIECES)
+  purchasePrice Decimal?      @db.Decimal(12, 2)
+  brand         ProductMaster @relation("ProductBrand", fields: [brandId], references: [id])
+  category      ProductMaster @relation("ProductCategory", fields: [categoryId], references: [id])
+  color         ProductMaster @relation("ProductColor", fields: [colorId], references: [id])
+  company       Company       @relation(fields: [companyId], references: [id])
+  size          ProductMaster @relation("ProductSize", fields: [sizeId], references: [id])
+
+  @@unique([companyId, productCode])
+  @@index([companyId, categoryId])
+  @@index([companyId, brandId])
+  @@index([companyId, colorId])
+  @@index([companyId, sizeId])
+}
+
+model Party {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  partyName   String
+  shopName    String
+  mobile      String
+  email       String?
+  address     String
+  city        String
+  state       String
+  country     String
+  pincode     String
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  partyProfit Float    @default(0)
+  company     Company  @relation(fields: [companyId], references: [id])
+  sales       Sale[]
+
+  @@unique([companyId, mobile])
+  @@index([companyId])
+}
+
+model Supplier {
+  id        Int        @id @default(autoincrement())
+  companyId Int
+  name      String
+  mobile    String
+  email     String?
+  address   String
+  city      String
+  state     String
+  country   String
+  pincode   String
+  status    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  purchases Purchase[]
+  sales     Sale[]
+  company   Company    @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, mobile])
+  @@index([companyId])
+}
+
+model Purchase {
+  id               Int           @id @default(autoincrement())
+  companyId        Int
+  purchaseNumber   String
+  createdById      Int?
+  invoiceDate      DateTime
+  subTotal         Float         @default(0)
+  gstAmount        Float         @default(0)
+  discount         Float         @default(0)
+  grandTotal       Float         @default(0)
+  paidAmount       Float         @default(0)
+  paymentStatus    PaymentStatus @default(UNPAID)
+  remarks          String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  status           Boolean       @default(true)
+  supplierId       Int?
+  supplierName     String?
+  productCode      String?
+  remainingBalance Float         @default(0)
+  company          Company       @relation(fields: [companyId], references: [id])
+  createdBy        User?         @relation(fields: [createdById], references: [id])
+  supplier         Supplier?     @relation(fields: [supplierId], references: [id])
+
+  @@unique([companyId, purchaseNumber])
+  @@index([companyId, supplierId])
+  @@index([companyId, paymentStatus])
+  @@index([companyId, status])
+}
+
+model Sale {
+  id                                        Int            @id @default(autoincrement())
+  companyId                                 Int
+  productName                               String
+  productCode                               String
+  sizeId                                    Int?
+  colorId                                   Int?
+  quantity                                  Int
+  salePrice                                 Float
+  purchasePrice                             Float
+  total                                     Float
+  createdAt                                 DateTime       @default(now())
+  updatedAt                                 DateTime       @updatedAt
+  supplierId                                Int?
+  supplierName                              String?
+  unit                                      SaleUnit       @default(PIECES)
+  status                                    Boolean        @default(true)
+  partyId                                   Int?
+  partyName                                 String?
+  perSaleProfit                             Float          @default(0)
+  brandId                                   Int?
+  remarks                                   String?
+  totalSaleProfit                           Float          @default(0)
+  ProductMaster_Sale_brandIdToProductMaster ProductMaster? @relation("Sale_brandIdToProductMaster", fields: [brandId], references: [id], onDelete: Restrict)
+  color                                     ProductMaster? @relation("SaleColor", fields: [colorId], references: [id], onDelete: Restrict)
+  company                                   Company        @relation(fields: [companyId], references: [id])
+  party                                     Party?         @relation(fields: [partyId], references: [id])
+  size                                      ProductMaster? @relation("SaleSize", fields: [sizeId], references: [id], onDelete: Restrict)
+  supplier                                  Supplier?      @relation(fields: [supplierId], references: [id])
+  selectedBrands                            SaleBrand[]
+  selectedColors                            SaleColor[]
+  selectedSizes                             SaleSize[]
+
+  @@index([companyId, supplierId])
+  @@index([companyId, sizeId])
+  @@index([companyId, colorId])
+  @@index([companyId, status])
+  @@index([companyId, brandId])
+  @@index([companyId, productCode])
+}
+
+model SaleBrand {
+  saleId          Int
+  productMasterId Int
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productMaster   ProductMaster @relation(fields: [productMasterId], references: [id], onDelete: Restrict)
+
+  @@id([saleId, productMasterId])
+  @@index([productMasterId])
+}
+
+model SaleColor {
+  saleId          Int
+  productMasterId Int
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productMaster   ProductMaster @relation(fields: [productMasterId], references: [id], onDelete: Restrict)
+
+  @@id([saleId, productMasterId])
+  @@index([productMasterId])
+}
+
+model SaleSize {
+  saleId          Int
+  productMasterId Int
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productMaster   ProductMaster @relation(fields: [productMasterId], references: [id], onDelete: Restrict)
+
+  @@id([saleId, productMasterId])
+  @@index([productMasterId])
+}
+
+model Expense {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  category    String
+  details     String?
+  amount      Float    @default(0)
+  paymentMode String
+  billUrl     String?
+  createdById Int?
+  status      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id])
+  createdBy   User?    @relation(fields: [createdById], references: [id])
+
+  @@index([companyId])
+  @@index([companyId, category])
+}
+
+model Report {
+  id            Int      @id @default(autoincrement())
+  companyId     Int
+  type          String
+  periodStart   DateTime
+  periodEnd     DateTime
+  data          Json
+  generatedById Int?
+  createdAt     DateTime @default(now())
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  generatedBy   User?    @relation(fields: [generatedById], references: [id])
+
+  @@index([companyId, type])
+  @@index([companyId, periodStart])
+}
+
+model Stock {
+  id           Int           @id @default(autoincrement())
+  companyId    Int
+  productCode  String
+  productName  String
+  sizeId       Int
+  qtyIn        Int           @default(0)
+  qtyOut       Int           @default(0)
+  balanceStock Int           @default(0)
+  salePrice    Float         @default(0)
+  saleValue    Float         @default(0)
+  remarks      String?
+  status       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  company      Company       @relation(fields: [companyId], references: [id])
+  size         ProductMaster @relation("StockSize", fields: [sizeId], references: [id])
+
+  @@unique([companyId, productCode])
+  @@index([companyId, sizeId])
+  @@index([companyId, status])
+}
+
+model Session {
+  sid    String   @id @db.VarChar(255)
+  sess   Json
+  expire DateTime
+
+  @@index([expire])
+  @@map("session")
+}
+
 enum Gender {
   MALE
   FEMALE
@@ -30,322 +378,4 @@ enum PaymentStatus {
 enum SaleUnit {
   PIECES
   DOZEN
-}
-
-model Company {
-  id        Int      @id @default(autoincrement())
-  name      String
-  status    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  users     User[]
-  products  Product[]
-  parties   Party[]
-  suppliers Supplier[]
-  purchases Purchase[]
-  sales     Sale[]
-  stocks    Stock[]
-  branding  CompanyBranding?
-  expenses  Expense[]
-  reports   Report[]
-}
-
-model CompanyBranding {
-  id             Int      @id @default(autoincrement())
-  companyId      Int      @unique
-  logoUrl        String?
-  bgImageUrl     String?
-  faviconUrl     String?
-  primaryColor   String?
-  secondaryColor String?
-  accentColor    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-}
-
-model Role {
-  id    Int    @id @default(autoincrement())
-  name  String @unique
-  users User[]
-}
-
-model User {
-  id           Int       @id @default(autoincrement())
-  companyId    Int
-  roleId       Int
-  name         String
-  dateOfBirth  DateTime  @db.Date
-  mobile       String
-  email        String
-  gender       Gender
-  address      String
-  photoUrl     String
-  signatureUrl String
-  panUrl       String
-  aadhaarUrl   String
-  passwordHash String
-  status       Boolean   @default(true)
-  lastLogin    DateTime?
-  resetToken   String?
-  resetTokenExpiry DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  company      Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
-  purchases     Purchase[]
-  createdExpenses Expense[]
-  generatedReports Report[]
-
-  @@unique([companyId, email])
-  @@unique([companyId, mobile])
-  @@index([companyId, roleId])
-}
-
-model ProductMaster {
-  id             Int           @id @default(autoincrement())
-  companyId      Int
-  type           MasterType
-  name           String
-  categoryId     Int?
-  unit           SaleUnit      @default(PIECES)
-  quantity       Int?
-  purchaseAmount Decimal?
-  saleAmount     Decimal?
-  status         Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  productsAsCategory Product[] @relation("ProductCategory")
-  productsAsBrand    Product[] @relation("ProductBrand")
-  productsAsColor    Product[] @relation("ProductColor")
-  productsAsSize     Product[] @relation("ProductSize")
-  salesAsSize        Sale[]    @relation("SaleSize")
-  salesAsColor       Sale[]    @relation("SaleColor")
-  stocksAsSize       Stock[]   @relation("StockSize")
-
-  @@unique([companyId, type, name])
-  @@index([companyId, type])
-  @@index([companyId, categoryId])
-}
-
-model Product {
-  id           Int      @id @default(autoincrement())
-  companyId    Int
-  productCode  String
-  productName  String
-  categoryId   Int
-  brandId      Int
-  colorId      Int
-  sizeId       Int
-  brandIds     Int[]    @default([])
-  colorIds     Int[]    @default([])
-  sizeIds      Int[]    @default([])
-  productImage String?
-  purchasePrice Decimal?
-  quantity      Int?
-  unit          SaleUnit @default(PIECES)
-  gst           String
-  itemCode     String
-  status       Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  category ProductMaster @relation("ProductCategory", fields: [categoryId], references: [id], onDelete: Restrict)
-  brand   ProductMaster @relation("ProductBrand", fields: [brandId], references: [id], onDelete: Restrict)
-  color   ProductMaster @relation("ProductColor", fields: [colorId], references: [id], onDelete: Restrict)
-  size    ProductMaster @relation("ProductSize", fields: [sizeId], references: [id], onDelete: Restrict)
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-
-  @@unique([companyId, productCode])
-  @@index([companyId, categoryId])
-  @@index([companyId, brandId])
-  @@index([companyId, colorId])
-  @@index([companyId, sizeId])
-}
-
-model Party {
-  id         Int      @id @default(autoincrement())
-  companyId  Int
-  partyName  String
-  shopName   String
-  mobile     String
-  email      String?
-  address    String
-  city       String
-  state      String
-  country    String
-  pincode    String
-  status     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  sales   Sale[]
-
-  @@unique([companyId, mobile])
-  @@index([companyId])
-}
-
-model Supplier {
-  id        Int      @id @default(autoincrement())
-  companyId Int
-  name      String
-  mobile    String
-  email     String?
-  address   String
-  city      String
-  state     String
-  country   String
-  pincode   String
-  status    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  sales   Sale[]
-  purchases Purchase[]
-
-  @@unique([companyId, mobile])
-  @@index([companyId])
-}
-
-model Purchase {
-  id             Int           @id @default(autoincrement())
-  companyId      Int
-  purchaseNumber String
-  supplierId     Int?
-  supplierName   String?
-  productCode    String?
-  createdById    Int?
-  invoiceDate    DateTime
-  subTotal       Decimal       @db.Decimal(12, 2)
-  gstAmount      Decimal       @db.Decimal(12, 2)
-  discount       Decimal       @default(0) @db.Decimal(12, 2)
-  grandTotal     Decimal       @db.Decimal(12, 2)
-  paidAmount     Decimal       @default(0) @db.Decimal(12, 2)
-  remainingBalance Decimal     @default(0) @db.Decimal(12, 2)
-  paymentStatus  PaymentStatus @default(UNPAID)
-  status         Boolean       @default(true)
-  remarks        String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  createdBy User? @relation(fields: [createdById], references: [id])
-
-  @@unique([companyId, purchaseNumber])
-  @@index([companyId, supplierId])
-  @@index([companyId, paymentStatus])
-  @@index([companyId, status])
-}
-
-model Sale {
-  id          Int      @id @default(autoincrement())
-  companyId   Int
-  partyId     Int?
-  partyName   String?
-  supplierId  Int?
-  supplierName String?
-  supplierMobile String?
-  supplierEmail String?
-  supplierAddress String?
-  productName String
-  productCode String
-  sizeId      Int
-  colorId     Int
-  quantity    Int
-  unit        SaleUnit @default(PIECES)
-  salePrice   Decimal  @db.Decimal(12, 2)
-  purchasePrice Decimal @db.Decimal(12, 2)
-  total       Decimal  @db.Decimal(12, 2)
-  perSaleProfit Decimal @db.Decimal(12, 2) @default(0)
-  status      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  size    ProductMaster @relation("SaleSize", fields: [sizeId], references: [id], onDelete: Restrict)
-  color   ProductMaster @relation("SaleColor", fields: [colorId], references: [id], onDelete: Restrict)
-
-  @@unique([companyId, productCode])
-  @@index([companyId, partyId])
-  @@index([companyId, supplierId])
-  @@index([companyId, sizeId])
-  @@index([companyId, colorId])
-  @@index([companyId, status])
-}
-
-model Expense {
-  id          Int      @id @default(autoincrement())
-  companyId   Int
-  category    String
-  details     String?
-  amount      Decimal  @db.Decimal(12, 2)
-  paymentMode String
-  billUrl     String?
-  createdById Int?
-  status      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  createdBy User? @relation(fields: [createdById], references: [id])
-
-  @@index([companyId])
-  @@index([companyId, category])
-}
-
-model Report {
-  id           Int      @id @default(autoincrement())
-  companyId    Int
-  type         String
-  periodStart  DateTime
-  periodEnd    DateTime
-  data         Json
-  generatedById Int?
-  createdAt    DateTime @default(now())
-
-  company    Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  generatedBy User?   @relation(fields: [generatedById], references: [id])
-
-  @@index([companyId, type])
-  @@index([companyId, periodStart])
-}
-
-model Stock {
-  id          Int      @id @default(autoincrement())
-  companyId   Int
-  productCode String
-  productName String
-  sizeId      Int
-  qtyIn       Int      @default(0)
-  qtyOut      Int      @default(0)
-  balanceStock Int
-  salePrice   Decimal  @db.Decimal(12, 2)
-  saleValue   Decimal  @db.Decimal(12, 2)
-  remarks     String?
-  status      Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  size    ProductMaster @relation("StockSize", fields: [sizeId], references: [id], onDelete: Restrict)
-
-  @@unique([companyId, productCode])
-  @@index([companyId, sizeId])
-  @@index([companyId, status])
-}
-
-// Used by express-session via connect-pg-simple.
-model Session {
-  sid    String   @id @db.VarChar(255)
-  sess   Json
-  expire DateTime
-
-  @@index([expire])
-  @@map("session")
 }
