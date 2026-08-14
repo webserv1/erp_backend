@@ -1,15 +1,15 @@
-const calculateRemainingBalance = (grandTotal, paidAmount) => {
-  const total = Number(grandTotal);
+const calculateRemainingBalance = (purchasePrice, paidAmount) => {
+  const total = Number(purchasePrice);
   const paid = Number(paidAmount) || 0;
-  if (Number.isNaN(total) || total < 0) throw new Error("Invalid grand total.");
+  if (Number.isNaN(total) || total < 0) throw new Error("Invalid purchase price.");
   if (Number.isNaN(paid) || paid < 0) throw new Error("Invalid paid amount.");
   return total - paid;
 };
 
 const purchaseData = (body, values) => {
-  const grandTotal = Number(body.grandTotal);
+  const purchasePrice = Number(body.purchasePrice);
   const paidAmount = body.paidAmount !== undefined ? Number(body.paidAmount) : 0;
-  const remainingBalance = calculateRemainingBalance(grandTotal, paidAmount);
+  const remainingBalance = calculateRemainingBalance(purchasePrice, paidAmount);
 
   return {
     ...values,
@@ -19,10 +19,12 @@ const purchaseData = (body, values) => {
     productCode: body.productCode ? String(body.productCode).trim() : null,
     createdById: body.createdById ? parseInt(body.createdById, 10) : null,
     invoiceDate: new Date(body.invoiceDate),
-    subTotal: Number(body.subTotal),
-    gstAmount: Number(body.gstAmount),
-    discount: body.discount !== undefined ? Number(body.discount) : 0,
-    grandTotal,
+    // Legacy amount columns are retained in the database but no longer accepted or returned.
+    subTotal: 0,
+    gstAmount: 0,
+    discount: 0,
+    grandTotal: 0,
+    purchasePrice,
     paidAmount,
     remainingBalance,
     paymentStatus: body.paymentStatus ? String(body.paymentStatus).toUpperCase() : "UNPAID",

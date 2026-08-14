@@ -206,6 +206,7 @@ model Purchase {
   supplierName     String?
   productCode      String?
   remainingBalance Float         @default(0)
+  purchasePrice    Float         @default(0)
   company          Company       @relation(fields: [companyId], references: [id])
   createdBy        User?         @relation(fields: [createdById], references: [id])
   supplier         Supplier?     @relation(fields: [supplierId], references: [id])
@@ -226,7 +227,7 @@ model Sale {
   quantity                                  Int
   salePrice                                 Float
   purchasePrice                             Float
-  total                                     Float
+  total                                     Float          @default(0)
   createdAt                                 DateTime       @default(now())
   updatedAt                                 DateTime       @updatedAt
   supplierId                                Int?
@@ -236,6 +237,9 @@ model Sale {
   partyId                                   Int?
   partyName                                 String?
   perSaleProfit                             Float          @default(0)
+  paidAmount                                Float          @default(0)
+  remainingAmount                           Float          @default(0)
+  paymentStatus                             PaymentStatus  @default(UNPAID)
   brandId                                   Int?
   remarks                                   String?
   totalSaleProfit                           Float          @default(0)
@@ -255,6 +259,7 @@ model Sale {
   @@index([companyId, status])
   @@index([companyId, brandId])
   @@index([companyId, productCode])
+  @@index([companyId, paymentStatus])
 }
 
 model SaleBrand {

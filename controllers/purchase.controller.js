@@ -11,10 +11,7 @@ const PUBLIC_PURCHASE_FIELDS = {
   productCode: true,
   createdById: true,
   invoiceDate: true,
-  subTotal: true,
-  gstAmount: true,
-  discount: true,
-  grandTotal: true,
+  purchasePrice: true,
   paidAmount: true,
   remainingBalance: true,
   paymentStatus: true,
@@ -33,10 +30,7 @@ const PUBLIC_PURCHASE_WITH_RELATIONS_FIELDS = {
   productCode: true,
   createdById: true,
   invoiceDate: true,
-  subTotal: true,
-  gstAmount: true,
-  discount: true,
-  grandTotal: true,
+  purchasePrice: true,
   paidAmount: true,
   remainingBalance: true,
   paymentStatus: true,
@@ -51,7 +45,7 @@ const PUBLIC_PURCHASE_WITH_RELATIONS_FIELDS = {
 const PaymentStatusValues = ["UNPAID", "PARTIAL", "PAID", "OVERDUE"];
 
 const validatePurchaseInput = (body) => {
-  const required = ["purchaseNumber", "supplierId", "invoiceDate", "subTotal", "gstAmount", "grandTotal"];
+  const required = ["purchaseNumber", "supplierId", "invoiceDate", "purchasePrice"];
   const missing = required.filter((field) => {
     const val = body[field];
     if (val === undefined || val === null || (typeof val === "string" && !val.trim())) return true;
@@ -60,7 +54,7 @@ const validatePurchaseInput = (body) => {
 
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
 
-  const numericFields = ["subTotal", "gstAmount", "discount", "grandTotal", "paidAmount"];
+  const numericFields = ["purchasePrice", "paidAmount"];
   for (const field of numericFields) {
     if (body[field] !== undefined && body[field] !== null && (Number.isNaN(Number(body[field])) || Number(body[field]) < 0)) {
       throw new AppError(400, `${field} must be a non-negative number.`);

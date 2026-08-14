@@ -1,20 +1,3 @@
-const UNIT_MULTIPLIERS = {
-  PIECES: 1,
-  DOZEN: 12,
-};
-
-const calculateSaleTotal = (quantity, salePrice, unit) => {
-  const qty = parseInt(quantity, 10);
-  const price = Number(salePrice);
-  const multiplier = unit ? (UNIT_MULTIPLIERS[unit] || 1) : 1;
-
-  if (Number.isNaN(qty) || qty < 0) throw new Error("Invalid quantity.");
-  if (Number.isNaN(price) || price < 0) throw new Error("Invalid sale price.");
-  if (!unit || !UNIT_MULTIPLIERS[unit]) throw new Error("Invalid unit.");
-
-  return qty * multiplier * price;
-};
-
 const calculatePurchaseTotal = (quantity, purchasePrice) => {
   const qty = parseInt(quantity, 10);
   const price = Number(purchasePrice);
@@ -33,4 +16,4 @@ const calculateGrandTotal = (subTotal, gstAmount, discount) => {
   return sub + gst - disc;
 };
 
-module.exports = { calculateSaleTotal, calculatePurchaseTotal, calculateGrandTotal, UNIT_MULTIPLIERS };
+module.exports = { calculatePurchaseTotal, calculateGrandTotal };

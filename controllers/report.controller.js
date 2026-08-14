@@ -40,7 +40,7 @@ const getDateRange = (start, end) => {
 
 const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
   const salesByDate = await prisma.$queryRaw`
-    SELECT DATE("createdAt") as date, SUM("total") as sales, SUM("perSaleProfit") as profit
+    SELECT DATE("createdAt") as date, SUM("salePrice") as sales, SUM("perSaleProfit") as profit
     FROM "Sale"
     WHERE "companyId" = ${companyId}
       AND "createdAt" >= ${periodStart}
@@ -73,12 +73,12 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
     prisma.sale.aggregate({
       where: { companyId, createdAt: { gte: periodStart, lte: periodEnd } },
       _count: { id: true },
-      _sum: { total: true, perSaleProfit: true },
+      _sum: { salePrice: true, perSaleProfit: true },
     }),
     prisma.purchase.aggregate({
       where: { companyId, createdAt: { gte: periodStart, lte: periodEnd } },
       _count: { id: true },
-      _sum: { grandTotal: true },
+      _sum: { purchasePrice: true },
     }),
     prisma.expense.aggregate({
       where: { companyId, createdAt: { gte: periodStart, lte: periodEnd }, status: true },
@@ -88,15 +88,15 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
     prisma.sale.groupBy({
       by: ["productCode", "productName"],
       where: { companyId, createdAt: { gte: periodStart, lte: periodEnd } },
-      _sum: { quantity: true, total: true },
-      orderBy: { _sum: { total: "desc" } },
+      _sum: { quantity: true, salePrice: true },
+      orderBy: { _sum: { salePrice: "desc" } },
       take: 5,
     }),
     prisma.purchase.groupBy({
       by: ["partyId", "partyName"],
       where: { companyId, createdAt: { gte: periodStart, lte: periodEnd }, partyId: { not: null } },
-      _sum: { grandTotal: true },
-      orderBy: { _sum: { grandTotal: "desc" } },
+      _sum: { purchasePrice: true },
+      orderBy: { _sum: { purchasePrice: "desc" } },
       take: 5,
     }),
     prisma.stock.findMany({
@@ -111,12 +111,12 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
   return {
     sales: {
       count: salesAgg._count.id,
-      total: Number(salesAgg._sum.total) || 0,
+      total: Number(salesAgg._sum.salePrice) || 0,
       profit: Number(salesAgg._sum.perSaleProfit) || 0,
     },
     purchases: {
       count: purchasesAgg._count.id,
-      total: Number(purchasesAgg._sum.grandTotal) || 0,
+      total: Number(purchasesAgg._sum.purchasePrice) || 0,
     },
     expenses: {
       count: expensesAgg._count.id,
@@ -128,12 +128,12 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
       productCode: p.productCode,
       productName: p.productName,
       quantity: p._sum.quantity,
-      total: Number(p._sum.total),
+      total: Number(p._sum.salePrice),
     })),
     topParties: topParties.map((p) => ({
       partyId: p.partyId,
       partyName: p.partyName,
-      total: Number(p._sum.grandTotal),
+      total: Number(p._sum.purchasePrice),
     })),
     lowStockAlerts: lowStock.map((item) => ({
       id: item.id,

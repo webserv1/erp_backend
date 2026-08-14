@@ -25,12 +25,12 @@ exports.getDashboard = async (req, res) => {
       prisma.purchase.aggregate({
         where: todayPurchaseWhere,
         _count: { id: true },
-        _sum: { grandTotal: true },
+        _sum: { purchasePrice: true },
       }),
       prisma.sale.aggregate({
         where: todaySaleWhere,
         _count: { id: true },
-        _sum: { total: true },
+        _sum: { salePrice: true },
       }),
       prisma.stock.findMany({
         where: { companyId, balanceStock: { lt: lowStockThreshold }, status: true },
@@ -47,7 +47,7 @@ exports.getDashboard = async (req, res) => {
       }) : Promise.resolve(null),
       prisma.$queryRaw`
         SELECT DISTINCT ON ("supplierId")
-          "id", "purchaseNumber", "grandTotal", "createdAt", "supplierId", "supplierName"
+          "id", "purchaseNumber", "purchasePrice", "createdAt", "supplierId", "supplierName"
         FROM "Purchase"
         WHERE "companyId" = ${companyId} AND "supplierId" IS NOT NULL
         ORDER BY "supplierId", "createdAt" DESC
@@ -62,9 +62,9 @@ exports.getDashboard = async (req, res) => {
       totalSales,
       today: {
         purchaseCount: todayPurchases._count.id,
-        purchaseTotal: Number(todayPurchases._sum.grandTotal) || 0,
+        purchaseTotal: Number(todayPurchases._sum.purchasePrice) || 0,
         saleCount: todaySales._count.id,
-        saleTotal: Number(todaySales._sum.total) || 0,
+        saleTotal: Number(todaySales._sum.salePrice) || 0,
         ...(isAdmin ? { salesProfit: Number(todaySalesProfit._sum.perSaleProfit) || 0 } : {}),
       },
       ...(isAdmin ? { totalSalesProfit: Number(totalSalesProfit._sum.perSaleProfit) || 0 } : {}),
@@ -78,7 +78,7 @@ exports.getDashboard = async (req, res) => {
       lastSupplierPurchases: lastSupplierPurchases.map((purchase) => ({
         id: purchase.id,
         purchaseNumber: purchase.purchaseNumber,
-        grandTotal: Number(purchase.grandTotal),
+        purchasePrice: Number(purchase.purchasePrice),
         createdAt: purchase.createdAt,
         supplierId: purchase.supplierId,
         supplierName: purchase.supplierName,

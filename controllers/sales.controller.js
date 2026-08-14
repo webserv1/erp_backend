@@ -1,12 +1,11 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
-const { calculateSaleTotal } = require("../utils/calculations");
-const { calculatePerSaleProfit } = require("../utils/salesCalculations");
+const { calculatePerSaleProfit, calculateRemainingAmount } = require("../utils/salesCalculations");
 
 const SALE_SELECT = {
   id: true, companyId: true, partyId: true, partyName: true, supplierId: true, supplierName: true,
   productName: true, productCode: true, brandId: true, colorId: true, sizeId: true, quantity: true,
-  unit: true, salePrice: true, purchasePrice: true, total: true, perSaleProfit: true, remarks: true,
+  unit: true, salePrice: true, purchasePrice: true, paidAmount: true, remainingAmount: true, paymentStatus: true, perSaleProfit: true, remarks: true,
   status: true, createdAt: true, updatedAt: true,
   party: { select: { id: true, partyName: true } },
   supplier: { select: { id: true, name: true } },
@@ -50,8 +49,9 @@ const validateSaleInput = (body) => {
   ["colorId", "sizeId"].forEach((field) => { if (!toIds(body, field).length) missing.push(field); });
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
   if (!Number.isInteger(Number(body.quantity)) || Number(body.quantity) < 1) throw new AppError(400, "Quantity must be a positive integer.");
-  for (const field of ["salePrice", "purchasePrice"]) if (Number.isNaN(Number(body[field])) || Number(body[field]) < 0) throw new AppError(400, `${field} must be a non-negative number.`);
+  for (const field of ["salePrice", "purchasePrice", "paidAmount"]) if (body[field] !== undefined && (Number.isNaN(Number(body[field])) || Number(body[field]) < 0)) throw new AppError(400, `${field} must be a non-negative number.`);
   if (!["PIECES", "DOZEN"].includes(String(body.unit).toUpperCase())) throw new AppError(400, "Unit must be PIECES or DOZEN.");
+  if (body.paymentStatus && !["UNPAID", "PARTIAL", "PAID", "OVERDUE"].includes(String(body.paymentStatus).toUpperCase())) throw new AppError(400, "paymentStatus must be UNPAID, PARTIAL, PAID, or OVERDUE.");
   if (![true, false, "ACTIVE", "INACTIVE", "true", "false"].includes(body.status)) throw new AppError(400, "Status must be ACTIVE, INACTIVE, true, or false.");
 };
 
@@ -88,8 +88,12 @@ const saleData = (body) => {
     productName: String(body.productName).trim(), productCode: String(body.productCode).trim(),
     brandId: brandIds[0] || null, colorId: colorIds[0], sizeId: sizeIds[0],
     quantity, unit, salePrice, purchasePrice,
-    total: calculateSaleTotal(quantity, salePrice, unit),
-    perSaleProfit: calculatePerSaleProfit(salePrice, purchasePrice, quantity),
+    // The legacy database column remains for compatibility but is no longer exposed or calculated.
+    total: 0,
+    paidAmount: body.paidAmount === undefined ? 0 : Number(body.paidAmount),
+    remainingAmount: calculateRemainingAmount(salePrice, body.paidAmount),
+    paymentStatus: body.paymentStatus ? String(body.paymentStatus).toUpperCase() : "UNPAID",
+    perSaleProfit: calculatePerSaleProfit(salePrice, purchasePrice),
     status: body.status === true || body.status === "ACTIVE" || body.status === "true",
     remarks: body.remarks ? String(body.remarks).trim() : null,
     selections: { brandIds, colorIds, sizeIds },
