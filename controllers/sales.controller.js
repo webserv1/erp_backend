@@ -17,6 +17,11 @@ const SALE_SELECT = {
   selectedSizes: { select: { productMaster: { select: { id: true, name: true } } } },
 };
 
+const INVOICE_SALE_SELECT = {
+  ...SALE_SELECT,
+  company: { select: { id: true, name: true, branding: { select: { logoUrl: true } } } },
+};
+
 const FIELD_ALIASES = {
   brandId: ["brandId", "brandIds", "brandIds[]"],
   colorId: ["colorId", "colorIds", "colorIds[]"],
@@ -143,6 +148,29 @@ exports.getById = async (req, res) => {
   const sale = await prisma.sale.findFirst({ where: { id, companyId: req.auth.companyId }, select: SALE_SELECT });
   if (!sale) throw new AppError(404, "Sale not found.");
   return res.json({ sale: serializeSale(sale) });
+};
+
+exports.getInvoice = async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) throw new AppError(400, "Invalid sale id.");
+
+  const sale = await prisma.sale.findFirst({
+    where: { id, companyId: req.auth.companyId },
+    select: INVOICE_SALE_SELECT,
+  });
+  if (!sale) throw new AppError(404, "Sale not found.");
+
+  const serialized = serializeSale(sale);
+  const { company, supplier, supplierName, purchasePrice, remainingAmount, perSaleProfit, ...invoiceSale } = serialized;
+  return res.json({
+    invoice: {
+      invoiceNumber: `SALE-${String(sale.id).padStart(6, "0")}`,
+      issueDate: sale.createdAt,
+      company: { id: sale.company.id, name: sale.company.name, logoUrl: sale.company.branding?.logoUrl || null },
+      customer: sale.party ? { id: sale.party.id, name: sale.party.partyName } : null,
+      sale: invoiceSale,
+    },
+  });
 };
 
 const saveSale = async (req, id) => {

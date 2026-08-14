@@ -7,6 +7,7 @@ const router = express.Router();
 
 router.get("/", requireAuth, asyncHandler(sales.getAll));
 router.get("/product-details", requireAuth, asyncHandler(sales.getProductDetails));
+router.get("/:id/invoice", requireAuth, asyncHandler(sales.getInvoice));
 router.get("/:id", requireAuth, asyncHandler(sales.getById));
 router.post("/", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(sales.create));
 router.put("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(sales.update));
