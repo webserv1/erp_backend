@@ -7,7 +7,7 @@ const upload = require("../middleware/upload");
 const router = express.Router();
 
 router.get("/", requireAuth, asyncHandler(expense.getAll));
-router.get("/summary", requireAuth, asyncHandler(expense.getSummary));
+router.get("/summary", requireAuth, authorizeRoles("ADMIN"), asyncHandler(expense.getSummary));
 router.get("/:id", requireAuth, asyncHandler(expense.getById));
 router.post("/", requireAuth, authorizeRoles("ADMIN", "MANAGER"), upload, asyncHandler(expense.create));
 router.put("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), upload, asyncHandler(expense.update));
