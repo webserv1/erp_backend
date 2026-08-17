@@ -12,11 +12,13 @@ exports.getDashboard = async (req, res) => {
   const isAdmin = req.auth.role === "ADMIN";
   const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 10;
   const { startOfDay, endOfDay } = getTodayRange();
+  const overdueDate = new Date();
+  overdueDate.setDate(overdueDate.getDate() - 30);
 
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
 
-  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases,       todaySales, lowStockItems, todaySalesProfit, totalSalesProfit, lastSupplierPurchases] =
+  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, lowStockItems, todaySalesProfit, totalSalesProfit, partyBalances, supplierBalances, overdueParties, lastPartySale] =
     await Promise.all([
       prisma.product.count({ where: { companyId } }),
       prisma.supplier.count({ where: { companyId } }),
@@ -45,14 +47,14 @@ exports.getDashboard = async (req, res) => {
         where: { companyId },
         _sum: { perSaleProfit: true },
       }) : Promise.resolve(null),
-      prisma.$queryRaw`
-        SELECT DISTINCT ON ("supplierId")
-          "id", "purchaseNumber", "purchasePrice", "createdAt", "supplierId", "supplierName"
-        FROM "Purchase"
-        WHERE "companyId" = ${companyId} AND "supplierId" IS NOT NULL
-        ORDER BY "supplierId", "createdAt" DESC
-      `,
+      prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
+      prisma.purchase.groupBy({ by: ["supplierId", "supplierName"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { remainingBalance: true }, orderBy: { _sum: { remainingBalance: "desc" } } }),
+      prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null }, remainingAmount: { gt: 0 }, createdAt: { lte: overdueDate } }, _sum: { remainingAmount: true }, _min: { createdAt: true }, orderBy: { _min: { createdAt: "asc" } } }),
+      prisma.sale.findFirst({ where: { companyId, status: true, partyId: { not: null } }, select: { id: true, productCode: true, productName: true, salePrice: true, createdAt: true, partyId: true, partyName: true }, orderBy: { createdAt: "desc" } }),
     ]);
+
+  const parties = partyBalances.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", amount: Number(party._sum.remainingAmount) || 0 }));
+  const suppliers = supplierBalances.map((supplier) => ({ id: supplier.supplierId, name: supplier.supplierName || "Unknown Supplier", amount: Number(supplier._sum.remainingBalance) || 0 }));
 
   return res.json({
     dashboard: {
@@ -75,14 +77,14 @@ exports.getDashboard = async (req, res) => {
         balanceStock: item.balanceStock,
         salePrice: Number(item.salePrice),
       })),
-      lastSupplierPurchases: lastSupplierPurchases.map((purchase) => ({
-        id: purchase.id,
-        purchaseNumber: purchase.purchaseNumber,
-        purchasePrice: Number(purchase.purchasePrice),
-        createdAt: purchase.createdAt,
-        supplierId: purchase.supplierId,
-        supplierName: purchase.supplierName,
-      })),
+      balances: {
+        partyOutstanding: parties.reduce((sum, party) => sum + party.amount, 0),
+        supplierPayable: suppliers.reduce((sum, supplier) => sum + supplier.amount, 0),
+        highestParty: parties[0] || null,
+        highestSupplier: suppliers[0] || null,
+      },
+      overduePartyReminders: overdueParties.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", amount: Number(party._sum.remainingAmount) || 0, overdueSince: party._min.createdAt })),
+      lastPartyPurchase: lastPartySale ? { id: lastPartySale.id, partyId: lastPartySale.partyId, partyName: lastPartySale.partyName || "Unknown Party", productCode: lastPartySale.productCode, productName: lastPartySale.productName, salePrice: Number(lastPartySale.salePrice), createdAt: lastPartySale.createdAt } : null,
     },
   });
 };
