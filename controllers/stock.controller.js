@@ -37,6 +37,53 @@ const PUBLIC_STOCK_WITH_RELATIONS_FIELDS = {
   size: { select: { id: true, name: true } },
 };
 
+const selectedMasterIds = (product, field, legacyField) => {
+  const ids = product?.[field] || [];
+  return ids.length ? ids : product?.[legacyField] ? [product[legacyField]] : [];
+};
+
+const enrichStocks = async (companyId, stocks) => {
+  if (!stocks.length) return [];
+
+  const products = await prisma.product.findMany({
+    where: { companyId, productCode: { in: stocks.map((stock) => stock.productCode) } },
+    select: {
+      productCode: true, productName: true, brandId: true, colorId: true, sizeId: true,
+      brandIds: true, colorIds: true, sizeIds: true, purchasePrice: true,
+    },
+  });
+  const productByCode = new Map(products.map((product) => [product.productCode, product]));
+  const masterIds = [...new Set(products.flatMap((product) => [
+    ...selectedMasterIds(product, "brandIds", "brandId"),
+    ...selectedMasterIds(product, "colorIds", "colorId"),
+    ...selectedMasterIds(product, "sizeIds", "sizeId"),
+  ]))];
+  const masters = await prisma.productMaster.findMany({
+    where: { companyId, id: { in: masterIds } },
+    select: { id: true, name: true, type: true },
+  });
+  const namesFor = (ids, type) => ids.map((id) => masters.find((master) => master.id === id && master.type === type)).filter(Boolean).map(({ id, name }) => ({ id, name }));
+
+  return stocks.map((stock) => {
+    const product = productByCode.get(stock.productCode);
+    const brandIds = selectedMasterIds(product, "brandIds", "brandId");
+    const colorIds = selectedMasterIds(product, "colorIds", "colorId");
+    const sizeIds = selectedMasterIds(product, "sizeIds", "sizeId");
+    const sizes = namesFor(sizeIds, "SIZE");
+    return {
+      ...stock,
+      productName: product?.productName || stock.productName,
+      purchasePrice: product?.purchasePrice === null || product?.purchasePrice === undefined ? 0 : Number(product.purchasePrice),
+      brandIds,
+      colorIds,
+      sizeIds,
+      brands: namesFor(brandIds, "BRAND"),
+      colors: namesFor(colorIds, "COLOR"),
+      sizes: sizes.length ? sizes : stock.size ? [stock.size] : [],
+    };
+  });
+};
+
 const validateStockInput = (body) => {
   const required = ["productCode", "productName", "sizeId", "qtyIn", "qtyOut", "salePrice"];
   const missing = required.filter((field) => {
@@ -93,25 +140,54 @@ const stockData = (body, values) => {
 
 exports.getAll = async (req, res) => {
   const { search, sizeId, status } = req.query;
+  const productWhere = { companyId: req.auth.companyId };
+  if (search) productWhere.OR = [{ productName: { contains: search, mode: "insensitive" } }, { productCode: { contains: search, mode: "insensitive" } }];
+  if (sizeId) productWhere.sizeId = parseInt(sizeId, 10);
+  if (status !== undefined) productWhere.status = status === "true" || status === true;
 
-  const where = { companyId: req.auth.companyId };
-
-  if (search) {
-    where.OR = [
-      { productName: { contains: search, mode: "insensitive" } },
-      { productCode: { contains: search, mode: "insensitive" } },
-    ];
-  }
-
-  if (sizeId) where.sizeId = parseInt(sizeId, 10);
-  if (status !== undefined) where.status = status === "true" || status === true;
-
-  const stocks = await prisma.stock.findMany({
-    where,
-    select: PUBLIC_STOCK_WITH_RELATIONS_FIELDS,
+  const products = await prisma.product.findMany({
+    where: productWhere,
+    select: {
+      id: true, companyId: true, productCode: true, productName: true, brandId: true, colorId: true, sizeId: true,
+      brandIds: true, colorIds: true, sizeIds: true, quantity: true, purchasePrice: true, status: true,
+      category: { select: { saleAmount: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
+  if (!products.length) return res.json({ stocks: [] });
 
+  const productCodes = products.map((product) => product.productCode);
+  const [salesByProduct, legacyStocks] = await Promise.all([
+    prisma.sale.groupBy({ where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true }, by: ["productCode"], _sum: { quantity: true } }),
+    prisma.stock.findMany({ where: { companyId: req.auth.companyId, productCode: { in: productCodes } }, select: { id: true, productCode: true, salePrice: true, createdAt: true, updatedAt: true } }),
+  ]);
+  const qtyOutByCode = new Map(salesByProduct.map((sale) => [sale.productCode, sale._sum.quantity || 0]));
+  const legacyStockByCode = new Map(legacyStocks.map((stock) => [stock.productCode, stock]));
+  const masterIds = [...new Set(products.flatMap((product) => [
+    ...selectedMasterIds(product, "brandIds", "brandId"),
+    ...selectedMasterIds(product, "colorIds", "colorId"),
+    ...selectedMasterIds(product, "sizeIds", "sizeId"),
+  ]))];
+  const masters = await prisma.productMaster.findMany({ where: { companyId: req.auth.companyId, id: { in: masterIds } }, select: { id: true, name: true, type: true } });
+  const namesFor = (ids, type) => ids.map((id) => masters.find((master) => master.id === id && master.type === type)).filter(Boolean).map(({ id, name }) => ({ id, name }));
+
+  const stocks = products.map((product) => {
+    const brandIds = selectedMasterIds(product, "brandIds", "brandId");
+    const colorIds = selectedMasterIds(product, "colorIds", "colorId");
+    const sizeIds = selectedMasterIds(product, "sizeIds", "sizeId");
+    const qtyIn = product.quantity || 0;
+    const qtyOut = qtyOutByCode.get(product.productCode) || 0;
+    const balanceStock = qtyIn - qtyOut;
+    const legacyStock = legacyStockByCode.get(product.productCode);
+    const salePrice = legacyStock?.salePrice ?? product.category?.saleAmount ?? 0;
+    return {
+      id: legacyStock?.id ?? product.id, companyId: product.companyId, productCode: product.productCode, productName: product.productName,
+      sizeId: product.sizeId, qtyIn, qtyOut, balanceStock, salePrice, saleValue: balanceStock * salePrice,
+      purchasePrice: product.purchasePrice === null ? 0 : Number(product.purchasePrice), status: product.status,
+      createdAt: legacyStock?.createdAt ?? null, updatedAt: legacyStock?.updatedAt ?? null,
+      brandIds, colorIds, sizeIds, brands: namesFor(brandIds, "BRAND"), colors: namesFor(colorIds, "COLOR"), sizes: namesFor(sizeIds, "SIZE"),
+    };
+  });
   return res.json({ stocks });
 };
 
@@ -125,7 +201,7 @@ exports.getById = async (req, res) => {
   });
   if (!stock) throw new AppError(404, "Stock entry not found.");
 
-  return res.json({ stock });
+  return res.json({ stock: (await enrichStocks(req.auth.companyId, [stock]))[0] });
 };
 
 exports.create = async (req, res) => {

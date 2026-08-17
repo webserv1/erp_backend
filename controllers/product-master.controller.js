@@ -121,6 +121,42 @@ exports.update = async (req, res) => {
   return res.json({ message: `${type} updated successfully.`, master });
 };
 
+const countMasterReferences = async (companyId, masterIds) => {
+  if (!masterIds.length) return { products: 0, sales: 0, stock: 0 };
+
+  const [products, sales, stock] = await Promise.all([
+    prisma.product.count({
+      where: {
+        companyId,
+        OR: [
+          { brandId: { in: masterIds } },
+          { colorId: { in: masterIds } },
+          { sizeId: { in: masterIds } },
+          { brandIds: { hasSome: masterIds } },
+          { colorIds: { hasSome: masterIds } },
+          { sizeIds: { hasSome: masterIds } },
+        ],
+      },
+    }),
+    prisma.sale.count({
+      where: {
+        companyId,
+        OR: [
+          { brandId: { in: masterIds } },
+          { colorId: { in: masterIds } },
+          { sizeId: { in: masterIds } },
+          { selectedBrands: { some: { productMasterId: { in: masterIds } } } },
+          { selectedColors: { some: { productMasterId: { in: masterIds } } } },
+          { selectedSizes: { some: { productMasterId: { in: masterIds } } } },
+        ],
+      },
+    }),
+    prisma.stock.count({ where: { companyId, sizeId: { in: masterIds } } }),
+  ]);
+
+  return { products, sales, stock };
+};
+
 exports.remove = async (req, res) => {
   const type = TYPE_MAP[String(req.params.type || "").toLowerCase()];
   if (!type) throw new AppError(400, "Type must be categories, brands, colors, or sizes.");
@@ -135,14 +171,9 @@ exports.remove = async (req, res) => {
   if (!existing) throw new AppError(404, "Master entry not found.");
   if (existing.companyId !== req.auth.companyId) throw new AppError(403, "You do not have permission to delete this entry.");
 
-  const productArrayField = { BRAND: "brandIds", COLOR: "colorIds", SIZE: "sizeIds" }[type];
-  if (productArrayField) {
-    const productCount = await prisma.product.count({
-      where: { companyId: req.auth.companyId, [productArrayField]: { has: id } },
-    });
-    if (productCount > 0) {
-      throw new AppError(409, `This ${type.toLowerCase()} is in use by products and cannot be deleted. Remove it from the products first or set it to inactive.`);
-    }
+  const references = await countMasterReferences(req.auth.companyId, [id]);
+  if (references.products || references.sales || references.stock) {
+    throw new AppError(409, `This ${type.toLowerCase()} is in use by ${references.sales ? "sales" : references.products ? "products" : "stock"} and cannot be deleted. Remove the reference first or set this master to inactive.`);
   }
 
   await prisma.productMaster.delete({ where: { id } });
@@ -523,6 +554,15 @@ exports.deleteCategory = async (req, res) => {
 
   if (productCount > 0) {
     throw new AppError(409, "This category is in use by products and cannot be deleted. Remove the products first or set them to inactive.");
+  }
+
+  const childMasters = await prisma.productMaster.findMany({
+    where: { companyId: req.auth.companyId, categoryId: id },
+    select: { id: true },
+  });
+  const references = await countMasterReferences(req.auth.companyId, childMasters.map((master) => master.id));
+  if (references.products || references.sales || references.stock) {
+    throw new AppError(409, `This category cannot be deleted because its brands, colors, or sizes are in use by ${references.sales ? "sales" : references.products ? "products" : "stock"}. Remove the reference first or set the category to inactive.`);
   }
 
   await prisma.productMaster.deleteMany({
