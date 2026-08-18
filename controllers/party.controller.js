@@ -39,6 +39,9 @@ const validatePartyInput = (body) => {
   if (!/^\+?[0-9]{7,15}$/.test(String(body.mobile).trim())) {
     throw new AppError(400, "Enter a valid mobile number with 7 to 15 digits.");
   }
+  if (!/^\d+$/.test(String(body.pincode).trim())) {
+    throw new AppError(400, "Pincode must contain numbers only.");
+  }
   if (body.email && !/^\S+@\S+\.\S+$/.test(body.email.trim())) {
     throw new AppError(400, "Enter a valid email address.");
   }

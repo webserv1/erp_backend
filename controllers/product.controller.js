@@ -60,6 +60,9 @@ const validateInput = (body) => {
   if (toIds(body, "categoryId").length !== 1) missing.push("categoryId");
   ["brandId", "colorId", "sizeId"].forEach((field) => { if (!toIds(body, field).length) missing.push(field); });
   if (missing.length) throw new AppError(400, "Required fields are missing or invalid.", { fields: missing });
+  if (!/^\d+$/.test(String(body.itemCode).trim())) {
+    throw new AppError(400, "Item code must contain numbers only.");
+  }
 
   if (hasValue(body, "unit")) {
     const upperUnit = String(body.unit).toUpperCase();

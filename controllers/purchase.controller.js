@@ -53,6 +53,9 @@ const validatePurchaseInput = (body) => {
   });
 
   if (missing.length) throw new AppError(400, "Required fields are missing.", { fields: missing });
+  if (!/^\d+$/.test(String(body.purchaseNumber).trim())) {
+    throw new AppError(400, "Purchase number must contain numbers only.");
+  }
 
   const numericFields = ["purchasePrice", "paidAmount"];
   for (const field of numericFields) {
