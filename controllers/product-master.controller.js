@@ -54,6 +54,38 @@ const validateNestedMaster = (item, index, type) => {
   }
 };
 
+const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => {
+  for (const entry of entries) {
+    const name = String(entry.name || "").trim();
+    if (!name) continue;
+
+    const existing = await tx.productMaster.findFirst({
+      where: { companyId, type, name },
+      select: { id: true },
+    });
+
+    if (existing) {
+      await tx.productMaster.update({
+        where: { id: existing.id },
+        data: {
+          categoryId,
+          status: normalizeStatus(entry.status) ?? true,
+        },
+      });
+    } else {
+      await tx.productMaster.create({
+        data: {
+          companyId,
+          type,
+          name,
+          categoryId,
+          status: normalizeStatus(entry.status) ?? true,
+        },
+      });
+    }
+  }
+};
+
 const masterData = (body, values) => ({
   ...values,
   name: body.name.trim(),
@@ -276,44 +308,9 @@ exports.createCategory = async (req, res) => {
       select: PUBLIC_MASTER_FIELDS,
     });
 
-    if (uniqueBrands.length > 0) {
-      await tx.productMaster.createMany({
-        data: uniqueBrands.map((b) => ({
-          companyId: req.auth.companyId,
-          type: "BRAND",
-          name: b.name.trim(),
-          status: normalizeStatus(b.status) ?? true,
-          categoryId: newCategory.id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-
-    if (uniqueColors.length > 0) {
-      await tx.productMaster.createMany({
-        data: uniqueColors.map((c) => ({
-          companyId: req.auth.companyId,
-          type: "COLOR",
-          name: c.name.trim(),
-          status: normalizeStatus(c.status) ?? true,
-          categoryId: newCategory.id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-
-    if (uniqueSizes.length > 0) {
-      await tx.productMaster.createMany({
-        data: uniqueSizes.map((s) => ({
-          companyId: req.auth.companyId,
-          type: "SIZE",
-          name: s.name.trim(),
-          status: normalizeStatus(s.status) ?? true,
-          categoryId: newCategory.id,
-        })),
-        skipDuplicates: true,
-      });
-    }
+    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueBrands, "BRAND");
+    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueColors, "COLOR");
+    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueSizes, "SIZE");
 
     const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
     const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
@@ -456,42 +453,9 @@ exports.updateCategory = async (req, res) => {
     const colorsToCreate = normalizedColors.filter((c) => !existingColors.some((ec) => ec.name === c.name.trim()));
     const sizesToCreate = normalizedSizes.filter((s) => !existingSizes.some((es) => es.name === s.name.trim()));
 
-    if (brandsToCreate.length > 0) {
-      await tx.productMaster.createMany({
-        data: brandsToCreate.map((b) => ({
-          companyId: req.auth.companyId,
-          type: "BRAND",
-          name: b.name.trim(),
-          status: normalizeStatus(b.status) ?? true,
-          categoryId: id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-    if (colorsToCreate.length > 0) {
-      await tx.productMaster.createMany({
-        data: colorsToCreate.map((c) => ({
-          companyId: req.auth.companyId,
-          type: "COLOR",
-          name: c.name.trim(),
-          status: normalizeStatus(c.status) ?? true,
-          categoryId: id,
-        })),
-        skipDuplicates: true,
-      });
-    }
-    if (sizesToCreate.length > 0) {
-      await tx.productMaster.createMany({
-        data: sizesToCreate.map((s) => ({
-          companyId: req.auth.companyId,
-          type: "SIZE",
-          name: s.name.trim(),
-          status: normalizeStatus(s.status) ?? true,
-          categoryId: id,
-        })),
-        skipDuplicates: true,
-      });
-    }
+    await attachNestedMasters(tx, req.auth.companyId, id, brandsToCreate, "BRAND");
+    await attachNestedMasters(tx, req.auth.companyId, id, colorsToCreate, "COLOR");
+    await attachNestedMasters(tx, req.auth.companyId, id, sizesToCreate, "SIZE");
 
     const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
     const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
