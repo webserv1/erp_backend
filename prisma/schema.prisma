@@ -118,7 +118,6 @@ model Product {
   sizeId        Int
   productImage  String?
   gst           String
-  itemCode      String
   status        Boolean       @default(true)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt

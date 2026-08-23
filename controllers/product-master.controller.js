@@ -1,5 +1,6 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
+const { calculateTotalPurchaseAmount } = require("../utils/productCalculations");
 
 const MASTER_TYPES = ["CATEGORY", "BRAND", "COLOR", "SIZE"];
 
@@ -24,6 +25,11 @@ const PUBLIC_MASTER_FIELDS = {
   createdAt: true,
   updatedAt: true,
 };
+
+const withTotalPurchaseAmount = (master) => ({
+  ...master,
+  totalPurchaseAmount: calculateTotalPurchaseAmount(master.quantity, master.purchaseAmount),
+});
 
 const normalizeStatus = (status) => {
   if (typeof status === "boolean") return status;
@@ -107,7 +113,7 @@ exports.getAll = async (req, res) => {
     orderBy: { name: "asc" },
   });
 
-  return res.json({ masters });
+  return res.json({ masters: masters.map(withTotalPurchaseAmount) });
 };
 
 exports.create = async (req, res) => {
@@ -121,7 +127,7 @@ exports.create = async (req, res) => {
       data: masterData(req.body, { companyId: req.auth.companyId, type }),
       select: PUBLIC_MASTER_FIELDS,
     });
-    return res.status(201).json({ message: `${type} created successfully.`, master });
+    return res.status(201).json({ message: `${type} created successfully.`, master: withTotalPurchaseAmount(master) });
   } catch (error) {
     if (error.code === "P2002") throw new AppError(409, `A ${type.toLowerCase()} with this name already exists in this company.`);
     throw error;
@@ -150,7 +156,7 @@ exports.update = async (req, res) => {
     select: PUBLIC_MASTER_FIELDS,
   });
 
-  return res.json({ message: `${type} updated successfully.`, master });
+  return res.json({ message: `${type} updated successfully.`, master: withTotalPurchaseAmount(master) });
 };
 
 const countMasterReferences = async (companyId, masterIds) => {
@@ -246,7 +252,7 @@ exports.getCategories = async (req, res) => {
   ]);
 
   const categoriesWithNested = categories.map((category) => ({
-    ...category,
+    ...withTotalPurchaseAmount(category),
     brands: brands.filter((b) => b.categoryId === category.id),
     colors: colors.filter((c) => c.categoryId === category.id),
     sizes: sizes.filter((s) => s.categoryId === category.id),
@@ -341,7 +347,7 @@ exports.createCategory = async (req, res) => {
     });
 
     return {
-      ...newCategory,
+      ...withTotalPurchaseAmount(newCategory),
       brands: related.filter((m) => m.type === "BRAND"),
       colors: related.filter((m) => m.type === "COLOR"),
       sizes: related.filter((m) => m.type === "SIZE"),
@@ -492,6 +498,7 @@ exports.updateCategory = async (req, res) => {
       unit: normalizedUnit,
       quantity: quantity ? parseInt(quantity, 10) : null,
       purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
+      totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount),
       saleAmount: saleAmount ? Number(saleAmount) : null,
       brands: related.filter((m) => m.type === "BRAND"),
       colors: related.filter((m) => m.type === "COLOR"),

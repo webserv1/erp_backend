@@ -1,10 +1,11 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
+const { calculateTotalPurchaseAmount } = require("../utils/productCalculations");
 
 const PRODUCT_SELECT = {
   id: true, companyId: true, productCode: true, productName: true, categoryId: true,
   brandId: true, colorId: true, sizeId: true, brandIds: true, colorIds: true, sizeIds: true,
-  productImage: true, purchasePrice: true, quantity: true, unit: true, gst: true, itemCode: true,
+  productImage: true, purchasePrice: true, quantity: true, unit: true, gst: true,
   status: true, createdAt: true, updatedAt: true,
   category: { select: { id: true, name: true } },
   brand: { select: { id: true, name: true } },
@@ -52,18 +53,15 @@ const withSelectedMasters = async (products) => {
     brands: namesFor(product, "brandIds", "brandId", "BRAND"),
     colors: namesFor(product, "colorIds", "colorId", "COLOR"),
     sizes: namesFor(product, "sizeIds", "sizeId", "SIZE"),
+    totalPurchaseAmount: calculateTotalPurchaseAmount(product.quantity, product.purchasePrice),
   }));
 };
 
 const validateInput = (body) => {
-  const missing = ["productCode", "productName", "gst", "itemCode"].filter((field) => !body[field] || !String(body[field]).trim());
+  const missing = ["productCode", "productName", "gst"].filter((field) => !body[field] || !String(body[field]).trim());
   if (toIds(body, "categoryId").length !== 1) missing.push("categoryId");
   ["brandId", "colorId", "sizeId"].forEach((field) => { if (!toIds(body, field).length) missing.push(field); });
   if (missing.length) throw new AppError(400, "Required fields are missing or invalid.", { fields: missing });
-  if (!/^\d+$/.test(String(body.itemCode).trim())) {
-    throw new AppError(400, "Item code must contain numbers only.");
-  }
-
   if (hasValue(body, "unit")) {
     const upperUnit = String(body.unit).toUpperCase();
     if (!["PIECES", "DOZEN"].includes(upperUnit)) throw new AppError(400, "Unit must be PIECES or DOZEN.");
@@ -90,7 +88,7 @@ const dataFrom = (body, files) => {
     purchasePrice: hasValue(body, "purchasePrice") ? Number(body.purchasePrice) : undefined,
     quantity: hasValue(body, "quantity") ? Number.parseInt(body.quantity, 10) : undefined,
     unit: hasValue(body, "unit") ? String(body.unit).toUpperCase() : undefined,
-    gst: String(body.gst).trim(), itemCode: String(body.itemCode).trim(),
+    gst: String(body.gst).trim(),
   };
 };
 
@@ -115,7 +113,7 @@ const validateMasters = async (companyId, data) => {
 exports.getAll = async (req, res) => {
   const { search, categoryId, brandId, colorId, sizeId, status } = req.query;
   const where = { companyId: req.auth.companyId };
-  if (search) where.OR = [{ productName: { contains: search, mode: "insensitive" } }, { productCode: { contains: search, mode: "insensitive" } }, { itemCode: { contains: search, mode: "insensitive" } }];
+  if (search) where.OR = [{ productName: { contains: search, mode: "insensitive" } }, { productCode: { contains: search, mode: "insensitive" } }];
   if (categoryId) where.categoryId = { in: (Array.isArray(categoryId) ? categoryId : [categoryId]).map(Number).filter(Number.isInteger) };
   for (const [field, value] of Object.entries({ brandId, colorId, sizeId })) {
     if (value) where[`${field}s`] = { hasSome: (Array.isArray(value) ? value : [value]).map(Number).filter(Number.isInteger) };
