@@ -53,7 +53,7 @@ const withSelectedMasters = async (products) => {
     brands: namesFor(product, "brandIds", "brandId", "BRAND"),
     colors: namesFor(product, "colorIds", "colorId", "COLOR"),
     sizes: namesFor(product, "sizeIds", "sizeId", "SIZE"),
-    totalPurchaseAmount: calculateTotalPurchaseAmount(product.quantity, product.purchasePrice),
+    totalPurchaseAmount: calculateTotalPurchaseAmount(product.quantity, product.purchasePrice, product.unit),
   }));
 };
 

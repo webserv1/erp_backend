@@ -1,5 +1,6 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
+const { calculateRemainingAmount } = require("../utils/purchaseCalculations");
 
 const normalizeStatus = (status) => {
   if (typeof status === "boolean") return status;
@@ -22,6 +23,8 @@ const PUBLIC_SUPPLIER_FIELDS = {
   state: true,
   country: true,
   pincode: true,
+  paidAmount: true,
+  paymentStatus: true,
   status: true,
   createdAt: true,
   updatedAt: true,
@@ -41,6 +44,12 @@ const validateSupplierInput = (body) => {
   if (!/^\d+$/.test(String(body.pincode).trim())) {
     throw new AppError(400, "Pincode must contain numbers only.");
   }
+  if (body.paidAmount !== undefined && (Number.isNaN(Number(body.paidAmount)) || Number(body.paidAmount) < 0)) {
+    throw new AppError(400, "Paid amount must be a non-negative number.");
+  }
+  if (body.paymentStatus && !["UNPAID", "PARTIAL", "PAID", "OVERDUE"].includes(String(body.paymentStatus).toUpperCase())) {
+    throw new AppError(400, "Payment status must be UNPAID, PARTIAL, PAID, or OVERDUE.");
+  }
   if (body.email && !/^\S+@\S+\.\S+$/.test(body.email.trim())) {
     throw new AppError(400, "Enter a valid email address.");
   }
@@ -59,8 +68,31 @@ const supplierData = (body, values) => ({
   state: body.state.trim(),
   country: body.country.trim(),
   pincode: String(body.pincode).trim(),
+  paidAmount: body.paidAmount === undefined ? undefined : Number(body.paidAmount),
+  paymentStatus: body.paymentStatus ? String(body.paymentStatus).toUpperCase() : undefined,
   status: normalizeStatus(body.status),
 });
+
+const withPurchaseBalances = async (suppliers, companyId) => {
+  if (!suppliers.length) return suppliers;
+  const supplierIds = suppliers.map((supplier) => supplier.id);
+  const totals = await prisma.purchase.groupBy({
+    by: ["supplierId"],
+    where: { companyId, status: true, supplierId: { in: supplierIds } },
+    _sum: { totalPurchaseAmount: true },
+  });
+  const totalBySupplier = new Map(totals.map((row) => [row.supplierId, Number(row._sum.totalPurchaseAmount) || 0]));
+  return suppliers.map((supplier) => {
+    const netTotalPurchaseAmount = totalBySupplier.get(supplier.id) || 0;
+    const paidAmount = Number(supplier.paidAmount) || 0;
+    return {
+      ...supplier,
+      netTotalPurchaseAmount,
+      paidAmount,
+      remainingAmount: calculateRemainingAmount(netTotalPurchaseAmount, paidAmount),
+    };
+  });
+};
 
 exports.getAll = async (req, res) => {
   const { search, status } = req.query;
@@ -86,7 +118,7 @@ exports.getAll = async (req, res) => {
     orderBy: { createdAt: "desc" },
   });
 
-  return res.json({ suppliers });
+  return res.json({ suppliers: await withPurchaseBalances(suppliers, req.auth.companyId) });
 };
 
 exports.getById = async (req, res) => {
@@ -99,7 +131,7 @@ exports.getById = async (req, res) => {
   });
   if (!supplier) throw new AppError(404, "Supplier not found.");
 
-  return res.json({ supplier });
+  return res.json({ supplier: (await withPurchaseBalances([supplier], req.auth.companyId))[0] });
 };
 
 exports.create = async (req, res) => {
@@ -110,7 +142,7 @@ exports.create = async (req, res) => {
       data: supplierData(req.body, { companyId: req.auth.companyId }),
       select: PUBLIC_SUPPLIER_FIELDS,
     });
-    return res.status(201).json({ message: "Supplier created successfully.", supplier });
+    return res.status(201).json({ message: "Supplier created successfully.", supplier: (await withPurchaseBalances([supplier], req.auth.companyId))[0] });
   } catch (error) {
     if (error.code === "P2002") throw new AppError(409, "A supplier with this mobile number already exists in this company.");
     throw error;
@@ -135,7 +167,7 @@ exports.update = async (req, res) => {
     select: PUBLIC_SUPPLIER_FIELDS,
   });
 
-  return res.json({ message: "Supplier updated successfully.", supplier });
+  return res.json({ message: "Supplier updated successfully.", supplier: (await withPurchaseBalances([supplier], req.auth.companyId))[0] });
 };
 
 exports.remove = async (req, res) => {

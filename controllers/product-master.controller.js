@@ -28,7 +28,7 @@ const PUBLIC_MASTER_FIELDS = {
 
 const withTotalPurchaseAmount = (master) => ({
   ...master,
-  totalPurchaseAmount: calculateTotalPurchaseAmount(master.quantity, master.purchaseAmount),
+  totalPurchaseAmount: calculateTotalPurchaseAmount(master.quantity, master.purchaseAmount, master.unit),
 });
 
 const normalizeStatus = (status) => {
@@ -66,7 +66,7 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
     if (!name) continue;
 
     const existing = await tx.productMaster.findFirst({
-      where: { companyId, type, name },
+    where: { companyId, type, name, categoryId },
       select: { id: true },
     });
 
@@ -86,6 +86,43 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
           name,
           categoryId,
           status: normalizeStatus(entry.status) ?? true,
+        },
+      });
+    }
+  }
+};
+
+// A master belongs to one category. When an existing master is selected for a
+// different category, create a category-specific copy instead of moving it.
+const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterIds, type) => {
+  if (!masterIds.length) return;
+
+  const masters = await tx.productMaster.findMany({
+    where: { id: { in: masterIds }, companyId, type },
+    select: {
+      id: true, name: true, status: true, unit: true,
+      quantity: true, purchaseAmount: true, saleAmount: true, categoryId: true,
+    },
+  });
+
+  for (const master of masters) {
+    if (master.categoryId === categoryId) continue;
+    const alreadyAttached = await tx.productMaster.findFirst({
+      where: { companyId, type, name: master.name, categoryId },
+      select: { id: true },
+    });
+    if (!alreadyAttached) {
+      await tx.productMaster.create({
+        data: {
+          companyId,
+          type,
+          name: master.name,
+          status: master.status,
+          unit: master.unit,
+          quantity: master.quantity,
+          purchaseAmount: master.purchaseAmount,
+          saleAmount: master.saleAmount,
+          categoryId,
         },
       });
     }
@@ -322,24 +359,9 @@ exports.createCategory = async (req, res) => {
     const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
     const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
 
-    if (validBrandIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validBrandIds }, companyId: req.auth.companyId, type: "BRAND" },
-        data: { categoryId: newCategory.id },
-      });
-    }
-    if (validColorIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validColorIds }, companyId: req.auth.companyId, type: "COLOR" },
-        data: { categoryId: newCategory.id },
-      });
-    }
-    if (validSizeIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validSizeIds }, companyId: req.auth.companyId, type: "SIZE" },
-        data: { categoryId: newCategory.id },
-      });
-    }
+    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validBrandIds, "BRAND");
+    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validColorIds, "COLOR");
+    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validSizeIds, "SIZE");
 
     const related = await tx.productMaster.findMany({
       where: { companyId: req.auth.companyId, categoryId: newCategory.id },
@@ -467,24 +489,9 @@ exports.updateCategory = async (req, res) => {
     const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
     const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
 
-    if (validBrandIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validBrandIds }, companyId: req.auth.companyId, type: "BRAND" },
-        data: { categoryId: id },
-      });
-    }
-    if (validColorIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validColorIds }, companyId: req.auth.companyId, type: "COLOR" },
-        data: { categoryId: id },
-      });
-    }
-    if (validSizeIds.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: validSizeIds }, companyId: req.auth.companyId, type: "SIZE" },
-        data: { categoryId: id },
-      });
-    }
+    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validBrandIds, "BRAND");
+    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validColorIds, "COLOR");
+    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validSizeIds, "SIZE");
 
     const related = await tx.productMaster.findMany({
       where: { companyId: req.auth.companyId, categoryId: id },
@@ -498,7 +505,7 @@ exports.updateCategory = async (req, res) => {
       unit: normalizedUnit,
       quantity: quantity ? parseInt(quantity, 10) : null,
       purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-      totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount),
+      totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount, normalizedUnit),
       saleAmount: saleAmount ? Number(saleAmount) : null,
       brands: related.filter((m) => m.type === "BRAND"),
       colors: related.filter((m) => m.type === "COLOR"),

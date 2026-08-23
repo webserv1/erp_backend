@@ -174,7 +174,9 @@ model Supplier {
   state     String
   country   String
   pincode   String
-  status    Boolean    @default(true)
+  paidAmount     Float         @default(0)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  status         Boolean       @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   purchases Purchase[]
@@ -196,7 +198,6 @@ model Purchase {
   discount         Float         @default(0)
   grandTotal       Float         @default(0)
   paidAmount       Float         @default(0)
-  paymentStatus    PaymentStatus @default(UNPAID)
   remarks          String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -204,15 +205,17 @@ model Purchase {
   supplierId       Int?
   supplierName     String?
   productCode      String?
+  productName      String?
   remainingBalance Float         @default(0)
   purchasePrice    Float         @default(0)
+  totalPurchaseAmount Float       @default(0)
+  quantity         Int           @default(0)
   company          Company       @relation(fields: [companyId], references: [id])
   createdBy        User?         @relation(fields: [createdById], references: [id])
   supplier         Supplier?     @relation(fields: [supplierId], references: [id])
 
-  @@unique([companyId, purchaseNumber])
+  @@index([companyId, purchaseNumber])
   @@index([companyId, supplierId])
-  @@index([companyId, paymentStatus])
   @@index([companyId, status])
 }
 
