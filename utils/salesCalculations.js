@@ -1,19 +1,36 @@
-const calculatePerSaleProfit = (salePrice, purchasePrice) => {
-  const sale = Number(salePrice);
-  const purchase = Number(purchasePrice);
-
-  if (Number.isNaN(sale) || sale < 0) throw new Error("Invalid sale price.");
-  if (Number.isNaN(purchase) || purchase < 0) throw new Error("Invalid purchase price.");
-
-  return sale - purchase;
+const toNumber = (value, field) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed) || parsed < 0) throw new Error(`Invalid ${field}.`);
+  return parsed;
 };
 
-const calculateRemainingAmount = (salePrice, paidAmount) => {
-  const sale = Number(salePrice);
+const quantityMultiplier = (unit) => String(unit).toUpperCase() === "DOZEN" ? 12 : 1;
+
+const calculateTotalSalePrice = (quantity, unit, salePrice) => {
+  const qty = toNumber(quantity, "quantity");
+  const price = toNumber(salePrice, "sale price");
+  return qty * quantityMultiplier(unit) * price;
+};
+
+const calculateTotalPurchaseAmount = (quantity, unit, purchasePrice) => {
+  const qty = toNumber(quantity, "quantity");
+  const price = toNumber(purchasePrice, "purchase price");
+  return qty * quantityMultiplier(unit) * price;
+};
+
+const calculatePerSaleProfit = (netTotalPurchase, netTotalSale) =>
+  toNumber(netTotalPurchase, "net total purchase") - toNumber(netTotalSale, "net total sale");
+
+const calculateRemainingAmount = (netTotalSale, paidAmount) => {
+  const sale = toNumber(netTotalSale, "net total sale");
   const paid = Number(paidAmount) || 0;
-  if (Number.isNaN(sale) || sale < 0) throw new Error("Invalid sale price.");
   if (Number.isNaN(paid) || paid < 0) throw new Error("Invalid paid amount.");
   return sale - paid;
 };
 
-module.exports = { calculatePerSaleProfit, calculateRemainingAmount };
+module.exports = {
+  calculatePerSaleProfit,
+  calculateRemainingAmount,
+  calculateTotalSalePrice,
+  calculateTotalPurchaseAmount,
+};

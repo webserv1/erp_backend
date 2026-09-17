@@ -1,1 +1,0 @@
-ALTER TABLE "ProductMaster" ADD COLUMN "unit" "SaleUnit" NOT NULL DEFAULT 'PIECES';

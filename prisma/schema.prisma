@@ -222,6 +222,7 @@ model Purchase {
 model Sale {
   id                                        Int            @id @default(autoincrement())
   companyId                                 Int
+  saleNumber                                String?
   productName                               String
   productCode                               String
   sizeId                                    Int?
@@ -262,6 +263,7 @@ model Sale {
   @@index([companyId, brandId])
   @@index([companyId, productCode])
   @@index([companyId, paymentStatus])
+  @@index([companyId, saleNumber])
 }
 
 model SaleBrand {
