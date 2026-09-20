@@ -42,6 +42,28 @@ const selectedMasterIds = (product, field, legacyField) => {
   return ids.length ? ids : product?.[legacyField] ? [product[legacyField]] : [];
 };
 
+const toBaseQuantity = (quantity, unit) => {
+  const qty = Number(quantity) || 0;
+  const normalizedUnit = String(unit || "PIECES").toUpperCase();
+  return qty * (normalizedUnit === "DOZEN" ? 12 : 1);
+};
+const formatQuantityBreakdown = (pieces) => {
+  const safePieces = Math.max(0, Number(pieces) || 0);
+  const dozens = Math.floor(safePieces / 12);
+  const remainingPieces = safePieces % 12;
+  const dozenLabel = `${dozens} DOZEN${dozens === 1 ? "" : "S"}`;
+  if (remainingPieces === 0) return `${safePieces} PIECES (${dozenLabel})`;
+  return `${safePieces} PIECES (${dozenLabel} + ${remainingPieces} PIECES)`;
+};
+const formatEnteredUnitTotals = ({ pieces, dozens }) => {
+  const pc = Number(pieces) || 0;
+  const dz = Number(dozens) || 0;
+  if (!pc && !dz) return "0 PIECES";
+  if (pc && dz) return `${dz} DOZEN${dz === 1 ? "" : "S"} + ${pc} PIECES`;
+  if (dz) return `${dz} DOZEN${dz === 1 ? "" : "S"}`;
+  return `${pc} PIECES`;
+};
+
 const enrichStocks = async (companyId, stocks) => {
   if (!stocks.length) return [];
 
@@ -157,11 +179,79 @@ exports.getAll = async (req, res) => {
   if (!products.length) return res.json({ stocks: [] });
 
   const productCodes = products.map((product) => product.productCode);
-  const [salesByProduct, legacyStocks] = await Promise.all([
-    prisma.sale.groupBy({ where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true }, by: ["productCode"], _sum: { quantity: true } }),
+  const [sales, purchases, legacyStocks] = await Promise.all([
+    prisma.sale.findMany({
+      where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true },
+      select: { productCode: true, quantity: true, unit: true },
+    }),
+    prisma.purchase.findMany({
+      where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true },
+      select: { productCode: true, quantity: true, unit: true, purchasePrice: true, invoiceDate: true, id: true },
+      orderBy: [{ invoiceDate: "desc" }, { id: "desc" }],
+    }),
     prisma.stock.findMany({ where: { companyId: req.auth.companyId, productCode: { in: productCodes } }, select: { id: true, productCode: true, salePrice: true, createdAt: true, updatedAt: true } }),
   ]);
-  const qtyOutByCode = new Map(salesByProduct.map((sale) => [sale.productCode, sale._sum.quantity || 0]));
+
+  const qtyOutByCode = sales.reduce((map, sale) => {
+    map.set(
+      sale.productCode,
+      (map.get(sale.productCode) || 0) + toBaseQuantity(sale.quantity, sale.unit),
+    );
+    return map;
+  }, new Map());
+  const qtyOutUnitsByCode = sales.reduce((map, sale) => {
+    if (!map.has(sale.productCode)) {
+      map.set(sale.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(sale.productCode);
+    const qty = Number(sale.quantity) || 0;
+    if (String(sale.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const qtyInByCode = purchases.reduce((map, purchase) => {
+    map.set(
+      purchase.productCode,
+      (map.get(purchase.productCode) || 0) +
+        toBaseQuantity(purchase.quantity, purchase.unit),
+    );
+    return map;
+  }, new Map());
+  const qtyInUnitsByCode = purchases.reduce((map, purchase) => {
+    if (!map.has(purchase.productCode)) {
+      map.set(purchase.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(purchase.productCode);
+    const qty = Number(purchase.quantity) || 0;
+    if (String(purchase.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const latestPurchaseByCode = new Map();
+  const previousPurchaseByCode = new Map();
+  const previousPurchasePriceByCode = new Map();
+  purchases.forEach((purchase) => {
+    if (!latestPurchaseByCode.has(purchase.productCode)) {
+      latestPurchaseByCode.set(purchase.productCode, purchase);
+      return;
+    }
+    if (!previousPurchaseByCode.has(purchase.productCode)) {
+      previousPurchaseByCode.set(purchase.productCode, purchase);
+    }
+    if (!previousPurchasePriceByCode.has(purchase.productCode)) {
+      previousPurchasePriceByCode.set(
+        purchase.productCode,
+        Number(purchase.purchasePrice) || 0,
+      );
+    }
+  });
+
   const legacyStockByCode = new Map(legacyStocks.map((stock) => [stock.productCode, stock]));
   const masterIds = [...new Set(products.flatMap((product) => [
     ...selectedMasterIds(product, "brandIds", "brandId"),
@@ -175,14 +265,58 @@ exports.getAll = async (req, res) => {
     const brandIds = selectedMasterIds(product, "brandIds", "brandId");
     const colorIds = selectedMasterIds(product, "colorIds", "colorId");
     const sizeIds = selectedMasterIds(product, "sizeIds", "sizeId");
-    const qtyIn = product.quantity || 0;
+    const qtyIn = qtyInByCode.has(product.productCode)
+      ? qtyInByCode.get(product.productCode)
+      : product.quantity || 0;
     const qtyOut = qtyOutByCode.get(product.productCode) || 0;
     const balanceStock = qtyIn - qtyOut;
+    const latestPurchase = latestPurchaseByCode.get(product.productCode);
+    const latestQtyIn = latestPurchase
+      ? toBaseQuantity(latestPurchase.quantity, latestPurchase.unit)
+      : 0;
+    const previousPurchase = previousPurchaseByCode.get(product.productCode);
+    const previousQtyIn = previousPurchase
+      ? toBaseQuantity(previousPurchase.quantity, previousPurchase.unit)
+      : 0;
+    const qtyInUnits = qtyInUnitsByCode.get(product.productCode) || {
+      pieces: 0,
+      dozens: 0,
+    };
+    const qtyOutUnits = qtyOutUnitsByCode.get(product.productCode) || {
+      pieces: 0,
+      dozens: 0,
+    };
+    const latestPurchasePrice = latestPurchase
+      ? Number(latestPurchase.purchasePrice) || 0
+      : product.purchasePrice === null
+        ? 0
+        : Number(product.purchasePrice);
+    const previousPurchasePrice = previousPurchasePriceByCode.has(product.productCode)
+      ? previousPurchasePriceByCode.get(product.productCode)
+      : null;
     const legacyStock = legacyStockByCode.get(product.productCode);
     const salePrice = legacyStock?.salePrice ?? product.category?.saleAmount ?? 0;
     return {
       id: legacyStock?.id ?? product.id, companyId: product.companyId, productCode: product.productCode, productName: product.productName,
       sizeId: product.sizeId, qtyIn, qtyOut, balanceStock, salePrice, saleValue: balanceStock * salePrice,
+      qtyInDisplay: formatQuantityBreakdown(qtyIn),
+      qtyInUnitDisplay: formatEnteredUnitTotals(qtyInUnits),
+      qtyOutDisplay: formatQuantityBreakdown(qtyOut),
+      qtyOutUnitDisplay: formatEnteredUnitTotals(qtyOutUnits),
+      balanceStockDisplay: formatQuantityBreakdown(balanceStock),
+      latestQtyIn,
+      latestQtyInDisplay: formatQuantityBreakdown(latestQtyIn),
+      latestQtyInUnitDisplay: latestPurchase
+        ? `${latestPurchase.quantity} ${String(latestPurchase.unit).toUpperCase()}`
+        : "0 PIECES",
+      previousQtyIn,
+      previousQtyInDisplay: formatQuantityBreakdown(previousQtyIn),
+      previousQtyInUnitDisplay: previousPurchase
+        ? `${previousPurchase.quantity} ${String(previousPurchase.unit).toUpperCase()}`
+        : null,
+      latestPurchasePrice,
+      previousPurchasePrice,
+      latestPurchaseAt: latestPurchase ? latestPurchase.invoiceDate : null,
       purchasePrice: product.purchasePrice === null ? 0 : Number(product.purchasePrice), status: product.status,
       createdAt: legacyStock?.createdAt ?? null, updatedAt: legacyStock?.updatedAt ?? null,
       brandIds, colorIds, sizeIds, brands: namesFor(brandIds, "BRAND"), colors: namesFor(colorIds, "COLOR"), sizes: namesFor(sizeIds, "SIZE"),

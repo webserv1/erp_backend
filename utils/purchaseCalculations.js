@@ -1,10 +1,22 @@
 const calculateRemainingAmount = (totalPurchaseAmount, paidAmount) =>
   Number(totalPurchaseAmount || 0) - Number(paidAmount || 0);
 
-const purchaseData = (body, values, product) => {
-  const purchasePrice = Number(product.purchasePrice) || 0;
-  const quantity = Number(product.quantity) || 0;
-  const quantityMultiplier = String(product.unit).toUpperCase() === "DOZEN" ? 12 : 1;
+const toNonNegativeNumber = (value, fallback = 0) => {
+  const parsed = Number(value);
+  if (Number.isNaN(parsed) || parsed < 0) return fallback;
+  return parsed;
+};
+
+const purchaseData = (body, values, product, item) => {
+  const purchasePrice = toNonNegativeNumber(
+    item.purchasePrice,
+    toNonNegativeNumber(product.purchasePrice, 0),
+  );
+  const quantity = Math.trunc(
+    toNonNegativeNumber(item.quantity, toNonNegativeNumber(product.quantity, 0)),
+  );
+  const unit = String(item.unit || product.unit || "PIECES").toUpperCase();
+  const quantityMultiplier = unit === "DOZEN" ? 12 : 1;
   const totalPurchaseAmount = quantity * quantityMultiplier * purchasePrice;
 
   return {
@@ -24,6 +36,7 @@ const purchaseData = (body, values, product) => {
     purchasePrice,
     totalPurchaseAmount,
     quantity,
+    unit,
     // Legacy columns are retained for historical records; supplier owns payments now.
     paidAmount: 0,
     remainingBalance: totalPurchaseAmount,

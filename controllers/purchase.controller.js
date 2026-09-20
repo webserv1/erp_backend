@@ -5,17 +5,26 @@ const { calculateRemainingAmount, purchaseData } = require("../utils/purchaseCal
 const PURCHASE_SELECT = {
   id: true, companyId: true, purchaseNumber: true, supplierId: true, supplierName: true,
   productCode: true, productName: true, createdById: true, invoiceDate: true, purchasePrice: true,
-  totalPurchaseAmount: true, quantity: true, status: true, remarks: true,
+  totalPurchaseAmount: true, quantity: true, unit: true, status: true, remarks: true,
   createdAt: true, updatedAt: true,
   supplier: { select: { id: true, name: true, mobile: true, paidAmount: true, paymentStatus: true } },
   createdBy: { select: { id: true, name: true } },
 };
 
 const PAYMENT_STATUSES = ["UNPAID", "PARTIAL", "PAID", "OVERDUE"];
+const VALID_UNITS = ["PIECES", "DOZEN"];
 const isMissing = (value) => value === undefined || value === null || (typeof value === "string" && !value.trim());
 
 const getItems = (body) => {
-  const items = Array.isArray(body.items) ? body.items : [{ productCode: body.productCode, remarks: body.remarks }];
+  const items = Array.isArray(body.items)
+    ? body.items
+    : [{
+        productCode: body.productCode,
+        quantity: body.quantity,
+        purchasePrice: body.purchasePrice,
+        unit: body.unit,
+        remarks: body.remarks,
+      }];
   if (!items.length || items.some((item) => isMissing(item?.productCode))) {
     throw new AppError(400, "Add at least one product code for the purchase.");
   }
@@ -28,7 +37,27 @@ const validatePurchaseInput = (body) => {
   if (!/^\d+$/.test(String(body.purchaseNumber).trim())) throw new AppError(400, "Purchase number must contain numbers only.");
   if (Number.isNaN(parseInt(body.supplierId, 10))) throw new AppError(400, "Invalid supplier id.");
   if (Number.isNaN(new Date(body.invoiceDate).getTime())) throw new AppError(400, "Enter a valid invoice date.");
-  getItems(body);
+  const items = getItems(body);
+  items.forEach((item, index) => {
+    if (!isMissing(item.quantity)) {
+      const quantity = Number(item.quantity);
+      if (!Number.isInteger(quantity) || quantity < 0) {
+        throw new AppError(400, `Invalid quantity for item ${index + 1}.`);
+      }
+    }
+    if (!isMissing(item.purchasePrice)) {
+      const purchasePrice = Number(item.purchasePrice);
+      if (Number.isNaN(purchasePrice) || purchasePrice < 0) {
+        throw new AppError(400, `Invalid purchase price for item ${index + 1}.`);
+      }
+    }
+    if (!isMissing(item.unit)) {
+      const unit = String(item.unit).toUpperCase();
+      if (!VALID_UNITS.includes(unit)) {
+        throw new AppError(400, `Invalid unit for item ${index + 1}.`);
+      }
+    }
+  });
 };
 
 const getSupplier = async (companyId, supplierId) => {
@@ -77,7 +106,16 @@ const groupPurchases = (purchases) => {
     const key = `${purchase.companyId}:${purchase.purchaseNumber}`;
     if (!groups.has(key)) groups.set(key, { ...purchase, items: [], netTotalPurchaseAmount: 0 });
     const group = groups.get(key);
-    group.items.push({ id: purchase.id, productCode: purchase.productCode, productName: purchase.productName, quantity: purchase.quantity, purchasePrice: purchase.purchasePrice, totalPurchaseAmount: purchase.totalPurchaseAmount, remarks: purchase.remarks });
+    group.items.push({
+      id: purchase.id,
+      productCode: purchase.productCode,
+      productName: purchase.productName,
+      quantity: purchase.quantity,
+      unit: purchase.unit,
+      purchasePrice: purchase.purchasePrice,
+      totalPurchaseAmount: purchase.totalPurchaseAmount,
+      remarks: purchase.remarks,
+    });
     group.netTotalPurchaseAmount += Number(purchase.totalPurchaseAmount) || 0;
   });
   return [...groups.values()].map((group) => {
@@ -100,6 +138,7 @@ const lineData = (body, item, product, companyId) => purchaseData(
   { ...body, productCode: item.productCode, remarks: item.remarks ?? body.remarks },
   { companyId },
   product,
+  item,
 );
 
 exports.getAll = async (req, res) => {

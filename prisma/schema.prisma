@@ -210,6 +210,7 @@ model Purchase {
   purchasePrice    Float         @default(0)
   totalPurchaseAmount Float       @default(0)
   quantity         Int           @default(0)
+  unit             SaleUnit      @default(PIECES)
   company          Company       @relation(fields: [companyId], references: [id])
   createdBy        User?         @relation(fields: [createdById], references: [id])
   supplier         Supplier?     @relation(fields: [supplierId], references: [id])

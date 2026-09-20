@@ -19,7 +19,7 @@ const calculateTotalPurchaseAmount = (quantity, unit, purchasePrice) => {
 };
 
 const calculatePerSaleProfit = (netTotalPurchase, netTotalSale) =>
-  toNumber(netTotalPurchase, "net total purchase") - toNumber(netTotalSale, "net total sale");
+  toNumber(netTotalSale, "net total sale") - toNumber(netTotalPurchase, "net total purchase");
 
 const calculateRemainingAmount = (netTotalSale, paidAmount) => {
   const sale = toNumber(netTotalSale, "net total sale");

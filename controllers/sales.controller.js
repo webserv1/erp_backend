@@ -13,6 +13,15 @@ const isMissing = (value) =>
   value === undefined ||
   value === null ||
   (typeof value === "string" && !value.trim());
+const toBaseQuantity = (quantity, unit) =>
+  (Number(quantity) || 0) * (String(unit || "PIECES").toUpperCase() === "DOZEN" ? 12 : 1);
+const formatQuantityBreakdown = (pieces) => {
+  const safePieces = Math.max(0, Number(pieces) || 0);
+  const dozens = Math.floor(safePieces / 12);
+  const remainder = safePieces % 12;
+  if (!remainder) return `${safePieces} PIECES (${dozens} DOZENS)`;
+  return `${safePieces} PIECES (${dozens} DOZENS + ${remainder} PIECES)`;
+};
 
 const SALE_SELECT = {
   id: true,
@@ -161,6 +170,7 @@ const groupSales = (sales) => {
       unit: line.unit,
       salePrice: line.salePrice,
       purchasePrice: line.purchasePrice,
+      totalPurchaseAmount: line.totalPurchaseAmount,
       totalSalePrice: line.totalSalePrice,
       Totalsaleprice: line.totalSalePrice,
     });
@@ -191,6 +201,7 @@ const groupSales = (sales) => {
       netTotalSalePrice,
       NetTotalsaleprice: netTotalSalePrice,
       netTotalPurchaseAmount,
+      netTotalpurchaseamount: netTotalPurchaseAmount,
       remainingAmount,
       perSaleProfit,
       persaleprofit: perSaleProfit,
@@ -372,6 +383,71 @@ const validatePartyAndSuppliers = async (companyId, partyId, lines) => {
   if (missing.length) throw new AppError(404, "Supplier not found.");
 };
 
+const validateAvailableQuantity = async (
+  companyId,
+  lines,
+  existingSaleNumber,
+  existingId,
+) => {
+  const productCodes = [...new Set(lines.map((line) => line.productCode))];
+  if (!productCodes.length) return;
+
+  const saleWhere = {
+    companyId,
+    status: true,
+    productCode: { in: productCodes },
+  };
+  if (existingSaleNumber) {
+    saleWhere.NOT = { saleNumber: existingSaleNumber };
+  } else if (existingId) {
+    saleWhere.NOT = { id: existingId };
+  }
+
+  const [purchases, sales] = await Promise.all([
+    prisma.purchase.findMany({
+      where: { companyId, status: true, productCode: { in: productCodes } },
+      select: { productCode: true, quantity: true, unit: true },
+    }),
+    prisma.sale.findMany({
+      where: saleWhere,
+      select: { productCode: true, quantity: true, unit: true },
+    }),
+  ]);
+
+  const qtyInByCode = purchases.reduce((map, entry) => {
+    map.set(
+      entry.productCode,
+      (map.get(entry.productCode) || 0) + toBaseQuantity(entry.quantity, entry.unit),
+    );
+    return map;
+  }, new Map());
+  const qtyOutByCode = sales.reduce((map, entry) => {
+    map.set(
+      entry.productCode,
+      (map.get(entry.productCode) || 0) + toBaseQuantity(entry.quantity, entry.unit),
+    );
+    return map;
+  }, new Map());
+  const requestedByCode = lines.reduce((map, line) => {
+    map.set(
+      line.productCode,
+      (map.get(line.productCode) || 0) + toBaseQuantity(line.quantity, line.unit),
+    );
+    return map;
+  }, new Map());
+
+  for (const productCode of productCodes) {
+    const available = (qtyInByCode.get(productCode) || 0) - (qtyOutByCode.get(productCode) || 0);
+    const requested = requestedByCode.get(productCode) || 0;
+    if (requested > available) {
+      throw new AppError(
+        400,
+        `Only ${formatQuantityBreakdown(Math.max(available, 0))} is remaining for this product (${productCode}).`,
+      );
+    }
+  }
+};
+
 const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice) => {
   const lineTotalSalePrice = calculateTotalSalePrice(line.quantity, line.unit, line.salePrice);
   const lineTotalPurchase = calculateTotalPurchaseAmount(
@@ -478,15 +554,38 @@ exports.getProductDetails = async (req, res) => {
       .filter(Boolean)
       .map(({ id, name }) => ({ id, name }));
 
-  const purchase = await prisma.purchase.findFirst({
+  const recentPurchases = await prisma.purchase.findMany({
     where: { companyId: req.auth.companyId, productCode, status: true },
     orderBy: [{ invoiceDate: "desc" }, { id: "desc" }],
+    take: 2,
     select: {
       supplierId: true,
       supplierName: true,
+      purchasePrice: true,
       supplier: { select: { id: true, name: true } },
     },
   });
+  const purchase = recentPurchases[0] || null;
+  const previousPurchase = recentPurchases[1] || null;
+  const [allPurchases, allSales] = await Promise.all([
+    prisma.purchase.findMany({
+      where: { companyId: req.auth.companyId, productCode, status: true },
+      select: { quantity: true, unit: true },
+    }),
+    prisma.sale.findMany({
+      where: { companyId: req.auth.companyId, productCode, status: true },
+      select: { quantity: true, unit: true },
+    }),
+  ]);
+  const totalQtyInPieces = allPurchases.reduce(
+    (sum, item) => sum + toBaseQuantity(item.quantity, item.unit),
+    0,
+  );
+  const totalQtyOutPieces = allSales.reduce(
+    (sum, item) => sum + toBaseQuantity(item.quantity, item.unit),
+    0,
+  );
+  const balanceQtyPieces = Math.max(totalQtyInPieces - totalQtyOutPieces, 0);
 
   return res.json({
     product: {
@@ -496,6 +595,16 @@ exports.getProductDetails = async (req, res) => {
       quantity: product.quantity,
       unit: product.unit,
       purchasePrice: product.purchasePrice,
+      lastPurchasePrice: purchase ? Number(purchase.purchasePrice) : null,
+      previousPurchasePrice: previousPurchase
+        ? Number(previousPurchase.purchasePrice)
+        : null,
+      balanceQuantity: balanceQtyPieces,
+      balanceQuantityDisplay: formatQuantityBreakdown(balanceQtyPieces),
+      totalPurchaseAmount:
+        Number(product.quantity || 0) *
+        (String(product.unit).toUpperCase() === "DOZEN" ? 12 : 1) *
+        Number(product.purchasePrice || 0),
       brandIds: product.brandIds.length ? product.brandIds : [product.brandId],
       colorIds: product.colorIds.length ? product.colorIds : [product.colorId],
       sizeIds: product.sizeIds.length ? product.sizeIds : [product.sizeId],
@@ -623,6 +732,12 @@ const saveSaleInvoice = async (req, existingSaleNumber, existingId) => {
   await Promise.all([
     validateMasterSelections(req.auth.companyId, lines),
     validatePartyAndSuppliers(req.auth.companyId, req.body.partyId, lines),
+    validateAvailableQuantity(
+      req.auth.companyId,
+      lines,
+      existingSaleNumber,
+      existingId,
+    ),
   ]);
 
   const netTotalSalePrice = Number(
