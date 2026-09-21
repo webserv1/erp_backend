@@ -27,7 +27,10 @@ const getDateRange = (start, end) => {
 
 const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
   const salesByDate = await prisma.$queryRaw`
-    SELECT DATE("createdAt") as date, SUM("salePrice") as sales, SUM("perSaleProfit") as profit
+    SELECT
+      DATE("createdAt") as date,
+      SUM("quantity" * CASE WHEN "unit" = 'DOZEN' THEN 12 ELSE 1 END * "salePrice") as sales,
+      SUM("perSaleProfit") as profit
     FROM "Sale"
     WHERE "companyId" = ${companyId} AND "createdAt" >= ${periodStart} AND "createdAt" <= ${periodEnd}
     GROUP BY DATE("createdAt")
@@ -43,11 +46,46 @@ const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
 const buildReportData = async (companyId, periodStart, periodEnd) => {
   const periodWhere = { companyId, createdAt: { gte: periodStart, lte: periodEnd } };
   const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, partyBalances, supplierPurchaseTotals, supplierRecords] = await Promise.all([
-    prisma.sale.aggregate({ where: periodWhere, _count: { id: true }, _sum: { salePrice: true, perSaleProfit: true } }),
+    prisma.$queryRaw`
+      SELECT
+        COUNT(*)::int AS count,
+        COALESCE(SUM("quantity" * CASE WHEN "unit" = 'DOZEN' THEN 12 ELSE 1 END * "salePrice"), 0) AS total,
+        COALESCE(SUM("perSaleProfit"), 0) AS profit
+      FROM "Sale"
+      WHERE "companyId" = ${companyId}
+        AND "createdAt" >= ${periodStart}
+        AND "createdAt" <= ${periodEnd}
+    `,
     prisma.purchase.aggregate({ where: periodWhere, _count: { id: true }, _sum: { totalPurchaseAmount: true } }),
     prisma.expense.aggregate({ where: { ...periodWhere, status: true }, _count: { id: true }, _sum: { amount: true } }),
-    prisma.sale.groupBy({ by: ["productCode", "productName"], where: periodWhere, _sum: { quantity: true, salePrice: true }, orderBy: { _sum: { salePrice: "desc" } }, take: 5 }),
-    prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { ...periodWhere, partyId: { not: null } }, _sum: { salePrice: true }, orderBy: { _sum: { salePrice: "desc" } }, take: 5 }),
+    prisma.$queryRaw`
+      SELECT
+        "productCode",
+        "productName",
+        SUM("quantity") AS quantity,
+        SUM("quantity" * CASE WHEN "unit" = 'DOZEN' THEN 12 ELSE 1 END * "salePrice") AS total
+      FROM "Sale"
+      WHERE "companyId" = ${companyId}
+        AND "createdAt" >= ${periodStart}
+        AND "createdAt" <= ${periodEnd}
+      GROUP BY "productCode", "productName"
+      ORDER BY total DESC
+      LIMIT 5
+    `,
+    prisma.$queryRaw`
+      SELECT
+        "partyId",
+        "partyName",
+        SUM("quantity" * CASE WHEN "unit" = 'DOZEN' THEN 12 ELSE 1 END * "salePrice") AS total
+      FROM "Sale"
+      WHERE "companyId" = ${companyId}
+        AND "createdAt" >= ${periodStart}
+        AND "createdAt" <= ${periodEnd}
+        AND "partyId" IS NOT NULL
+      GROUP BY "partyId", "partyName"
+      ORDER BY total DESC
+      LIMIT 5
+    `,
     prisma.stock.findMany({ where: { companyId, balanceStock: { lt: 10 }, status: true }, select: { id: true, productCode: true, productName: true, balanceStock: true }, orderBy: { balanceStock: "asc" }, take: 10 }),
     buildSalesTrend(companyId, periodStart, periodEnd),
     prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
@@ -65,15 +103,16 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
       balance: netTotalPurchaseAmount - (Number(supplier?.paidAmount) || 0),
     };
   }).sort((a, b) => b.balance - a.balance);
+  const salesSummary = Array.isArray(salesAgg) ? salesAgg[0] : salesAgg;
   return {
-    sales: { count: salesAgg._count.id, total: Number(salesAgg._sum.salePrice) || 0, profit: Number(salesAgg._sum.perSaleProfit) || 0 },
+    sales: { count: Number(salesSummary?.count) || 0, total: Number(salesSummary?.total) || 0, profit: Number(salesSummary?.profit) || 0 },
     purchases: { count: purchasesAgg._count.id, total: Number(purchasesAgg._sum.totalPurchaseAmount) || 0 },
     expenses: { count: expensesAgg._count.id, total: Number(expensesAgg._sum.amount) || 0 },
-    netProfit: (Number(salesAgg._sum.perSaleProfit) || 0) - (Number(expensesAgg._sum.amount) || 0),
+    netProfit: (Number(salesSummary?.profit) || 0) - (Number(expensesAgg._sum.amount) || 0),
     balances: { partyOutstanding: parties.reduce((sum, party) => sum + party.balance, 0), supplierPayable: suppliers.reduce((sum, supplier) => sum + supplier.balance, 0), parties, suppliers },
     salesTrend,
-    topProducts: topProducts.map((product) => ({ productCode: product.productCode, productName: product.productName, quantity: product._sum.quantity, total: Number(product._sum.salePrice) || 0 })),
-    topParties: topParties.map((party) => ({ partyId: party.partyId, partyName: party.partyName, total: Number(party._sum.salePrice) || 0 })),
+    topProducts: topProducts.map((product) => ({ productCode: product.productCode, productName: product.productName, quantity: Number(product.quantity) || 0, total: Number(product.total) || 0 })),
+    topParties: topParties.map((party) => ({ partyId: party.partyId, partyName: party.partyName, total: Number(party.total) || 0 })),
     lowStockAlerts: lowStock,
   };
 };
