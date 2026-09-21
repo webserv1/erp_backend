@@ -8,5 +8,6 @@ const router = express.Router();
 router.post("/generate", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(report.generateReport));
 router.get("/", requireAuth, asyncHandler(report.getAll));
 router.get("/:id", requireAuth, asyncHandler(report.getById));
+router.delete("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(report.remove));
 
 module.exports = router;

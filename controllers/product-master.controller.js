@@ -129,6 +129,63 @@ const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterId
   }
 };
 
+const countMasterReferencesTx = async (tx, companyId, masterId) => {
+  const [products, sales, stock] = await Promise.all([
+    tx.product.count({
+      where: {
+        companyId,
+        OR: [
+          { brandId: masterId },
+          { colorId: masterId },
+          { sizeId: masterId },
+          { brandIds: { hasSome: [masterId] } },
+          { colorIds: { hasSome: [masterId] } },
+          { sizeIds: { hasSome: [masterId] } },
+        ],
+      },
+    }),
+    tx.sale.count({
+      where: {
+        companyId,
+        OR: [
+          { brandId: masterId },
+          { colorId: masterId },
+          { sizeId: masterId },
+          { selectedBrands: { some: { productMasterId: masterId } } },
+          { selectedColors: { some: { productMasterId: masterId } } },
+          { selectedSizes: { some: { productMasterId: masterId } } },
+        ],
+      },
+    }),
+    tx.stock.count({ where: { companyId, sizeId: masterId } }),
+  ]);
+  return { products, sales, stock };
+};
+
+const detachOrDeleteNestedMasters = async (tx, companyId, masters) => {
+  for (const master of masters) {
+    const refs = await countMasterReferencesTx(tx, companyId, master.id);
+    if (!refs.products && !refs.sales && !refs.stock) {
+      await tx.productMaster.delete({ where: { id: master.id } });
+      continue;
+    }
+    try {
+      await tx.productMaster.update({
+        where: { id: master.id },
+        data: { categoryId: null },
+      });
+    } catch (error) {
+      if (error.code === "P2002") {
+        throw new AppError(
+          409,
+          `Cannot detach ${master.type.toLowerCase()} "${master.name}" because another ${master.type.toLowerCase()} with the same name already exists. Rename it or remove old references first.`,
+        );
+      }
+      throw error;
+    }
+  }
+};
+
 const masterData = (body, values) => ({
   ...values,
   name: body.name.trim(),
@@ -423,6 +480,15 @@ exports.updateCategory = async (req, res) => {
   normalizedBrands.forEach((b, i) => validateNestedMaster(b, i, "Brand"));
   normalizedColors.forEach((c, i) => validateNestedMaster(c, i, "Color"));
   normalizedSizes.forEach((s, i) => validateNestedMaster(s, i, "Size"));
+  const hasBrandUpdate =
+    Object.prototype.hasOwnProperty.call(req.body, "brands") ||
+    Object.prototype.hasOwnProperty.call(req.body, "brandIds");
+  const hasColorUpdate =
+    Object.prototype.hasOwnProperty.call(req.body, "colors") ||
+    Object.prototype.hasOwnProperty.call(req.body, "colorIds");
+  const hasSizeUpdate =
+    Object.prototype.hasOwnProperty.call(req.body, "sizes") ||
+    Object.prototype.hasOwnProperty.call(req.body, "sizeIds");
 
   const updatedCategory = await prisma.$transaction(async (tx) => {
     await tx.productMaster.update({
@@ -450,48 +516,65 @@ exports.updateCategory = async (req, res) => {
       select: { id: true, name: true },
     });
 
-    const brandNames = normalizedBrands.map((b) => b.name.trim());
-    const colorNames = normalizedColors.map((c) => c.name.trim());
-    const sizeNames = normalizedSizes.map((s) => s.name.trim());
+    const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((entry) => !Number.isNaN(parseInt(entry, 10))).map((entry) => parseInt(entry, 10));
+    const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((entry) => !Number.isNaN(parseInt(entry, 10))).map((entry) => parseInt(entry, 10));
+    const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((entry) => !Number.isNaN(parseInt(entry, 10))).map((entry) => parseInt(entry, 10));
 
-    const brandsToDelete = existingBrands.filter((b) => !brandNames.includes(b.name));
-    const colorsToDelete = existingColors.filter((c) => !colorNames.includes(c.name));
-    const sizesToDelete = existingSizes.filter((s) => !sizeNames.includes(s.name));
+    const brandNames = new Set(normalizedBrands.map((b) => b.name.trim()));
+    const colorNames = new Set(normalizedColors.map((c) => c.name.trim()));
+    const sizeNames = new Set(normalizedSizes.map((s) => s.name.trim()));
+    existingBrands
+      .filter((brand) => validBrandIds.includes(brand.id))
+      .forEach((brand) => brandNames.add(brand.name));
+    existingColors
+      .filter((color) => validColorIds.includes(color.id))
+      .forEach((color) => colorNames.add(color.name));
+    existingSizes
+      .filter((size) => validSizeIds.includes(size.id))
+      .forEach((size) => sizeNames.add(size.name));
+
+    const brandsToDelete = hasBrandUpdate
+      ? existingBrands.filter((brand) => !brandNames.has(brand.name))
+      : [];
+    const colorsToDelete = hasColorUpdate
+      ? existingColors.filter((color) => !colorNames.has(color.name))
+      : [];
+    const sizesToDelete = hasSizeUpdate
+      ? existingSizes.filter((size) => !sizeNames.has(size.name))
+      : [];
 
     if (brandsToDelete.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: brandsToDelete.map((b) => b.id) } },
-        data: { categoryId: null },
-      });
+      await detachOrDeleteNestedMasters(tx, req.auth.companyId, brandsToDelete.map((brand) => ({ ...brand, type: "BRAND" })));
     }
     if (colorsToDelete.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: colorsToDelete.map((c) => c.id) } },
-        data: { categoryId: null },
-      });
+      await detachOrDeleteNestedMasters(tx, req.auth.companyId, colorsToDelete.map((color) => ({ ...color, type: "COLOR" })));
     }
     if (sizesToDelete.length > 0) {
-      await tx.productMaster.updateMany({
-        where: { id: { in: sizesToDelete.map((s) => s.id) } },
-        data: { categoryId: null },
-      });
+      await detachOrDeleteNestedMasters(tx, req.auth.companyId, sizesToDelete.map((size) => ({ ...size, type: "SIZE" })));
     }
 
-    const brandsToCreate = normalizedBrands.filter((b) => !existingBrands.some((eb) => eb.name === b.name.trim()));
-    const colorsToCreate = normalizedColors.filter((c) => !existingColors.some((ec) => ec.name === c.name.trim()));
-    const sizesToCreate = normalizedSizes.filter((s) => !existingSizes.some((es) => es.name === s.name.trim()));
+    const brandsToCreate = hasBrandUpdate
+      ? normalizedBrands.filter((brand) => !existingBrands.some((existingBrand) => existingBrand.name === brand.name.trim()))
+      : [];
+    const colorsToCreate = hasColorUpdate
+      ? normalizedColors.filter((color) => !existingColors.some((existingColor) => existingColor.name === color.name.trim()))
+      : [];
+    const sizesToCreate = hasSizeUpdate
+      ? normalizedSizes.filter((size) => !existingSizes.some((existingSize) => existingSize.name === size.name.trim()))
+      : [];
 
     await attachNestedMasters(tx, req.auth.companyId, id, brandsToCreate, "BRAND");
     await attachNestedMasters(tx, req.auth.companyId, id, colorsToCreate, "COLOR");
     await attachNestedMasters(tx, req.auth.companyId, id, sizesToCreate, "SIZE");
-
-    const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-    const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-    const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-
-    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validBrandIds, "BRAND");
-    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validColorIds, "COLOR");
-    await copySelectedMastersToCategory(tx, req.auth.companyId, id, validSizeIds, "SIZE");
+    if (hasBrandUpdate) {
+      await copySelectedMastersToCategory(tx, req.auth.companyId, id, validBrandIds, "BRAND");
+    }
+    if (hasColorUpdate) {
+      await copySelectedMastersToCategory(tx, req.auth.companyId, id, validColorIds, "COLOR");
+    }
+    if (hasSizeUpdate) {
+      await copySelectedMastersToCategory(tx, req.auth.companyId, id, validSizeIds, "SIZE");
+    }
 
     const related = await tx.productMaster.findMany({
       where: { companyId: req.auth.companyId, categoryId: id },

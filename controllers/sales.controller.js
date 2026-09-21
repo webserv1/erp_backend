@@ -22,6 +22,30 @@ const formatQuantityBreakdown = (pieces) => {
   if (!remainder) return `${safePieces} PIECES (${dozens} DOZENS)`;
   return `${safePieces} PIECES (${dozens} DOZENS + ${remainder} PIECES)`;
 };
+const invoiceNumberFrom = (sequence) => `INV_${sequence}`;
+const generateInvoiceNumber = async (companyId) => {
+  const latestInvoice = await prisma.sale.findFirst({
+    where: { companyId, OR: [{ saleNumber: { startsWith: "INV_" } }, { saleNumber: { startsWith: "INV-" } }] },
+    orderBy: [{ id: "desc" }],
+    select: { saleNumber: true },
+  });
+  const match = String(latestInvoice?.saleNumber || "").match(/^INV[_-](\d+)$/);
+  const currentSequence = match ? Number.parseInt(match[1], 10) : 0;
+  let nextSequence = Number.isInteger(currentSequence) ? currentSequence + 1 : Date.now();
+  let candidate = invoiceNumberFrom(nextSequence);
+  // Keep bumping only when an existing invoice uses the same value.
+  // This prevents rare collisions from manual legacy data edits.
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const existing = await prisma.sale.findFirst({
+      where: { companyId, saleNumber: candidate },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+    nextSequence += 1;
+    candidate = invoiceNumberFrom(nextSequence);
+  }
+};
 
 const SALE_SELECT = {
   id: true,
@@ -48,7 +72,20 @@ const SALE_SELECT = {
   status: true,
   createdAt: true,
   updatedAt: true,
-  party: { select: { id: true, partyName: true } },
+  party: {
+    select: {
+      id: true,
+      partyName: true,
+      shopName: true,
+      mobile: true,
+      email: true,
+      address: true,
+      city: true,
+      state: true,
+      country: true,
+      pincode: true,
+    },
+  },
   supplier: { select: { id: true, name: true } },
   ProductMaster_Sale_brandIdToProductMaster: {
     select: { id: true, name: true },
@@ -63,7 +100,22 @@ const SALE_SELECT = {
 const INVOICE_SALE_SELECT = {
   ...SALE_SELECT,
   company: {
-    select: { id: true, name: true, branding: { select: { logoUrl: true } } },
+    select: {
+      id: true,
+      name: true,
+      branding: { select: { logoUrl: true } },
+      users: {
+        where: { status: true },
+        orderBy: { id: "asc" },
+        take: 1,
+        select: {
+          name: true,
+          mobile: true,
+          email: true,
+          address: true,
+        },
+      },
+    },
   },
 };
 
@@ -191,6 +243,7 @@ const groupSales = (sales) => {
 
     return {
       ...group,
+      invoiceNumber: group.saleNumber,
       productCode: group.items[0]?.productCode || group.productCode,
       productName: group.items[0]?.productName || group.productName,
       quantity: group.items[0]?.quantity || group.quantity,
@@ -317,11 +370,6 @@ const validateSaleInput = (body) => {
     (Number.isNaN(Number(body.paidAmount)) || Number(body.paidAmount) < 0)
   ) {
     throw new AppError(400, "paidAmount must be a non-negative number.");
-  }
-
-  const saleNumber = String(body.saleNumber || "").trim();
-  if (saleNumber && !/^\d+$/.test(saleNumber)) {
-    throw new AppError(400, "Sale number must contain numbers only.");
   }
 
   return items;
@@ -628,7 +676,7 @@ exports.getProductDetails = async (req, res) => {
 };
 
 exports.getAll = async (req, res) => {
-  const { search, brandId, colorId, sizeId, supplierId, partyId, startDate, endDate } =
+  const { search, invoiceNumber, brandId, colorId, sizeId, supplierId, partyId, startDate, endDate } =
     req.query;
   const where = { companyId: req.auth.companyId };
   if (search) {
@@ -648,6 +696,7 @@ exports.getAll = async (req, res) => {
   if (brandId) addSelectionFilter("selectedBrands", brandId);
   if (colorId) addSelectionFilter("selectedColors", colorId);
   if (sizeId) addSelectionFilter("selectedSizes", sizeId);
+  if (invoiceNumber) where.saleNumber = String(invoiceNumber).trim();
   if (supplierId) where.supplierId = Number.parseInt(supplierId, 10);
   if (partyId) where.partyId = Number.parseInt(partyId, 10);
   if (startDate || endDate) {
@@ -717,9 +766,24 @@ exports.getInvoice = async (req, res) => {
         id: invoiceLine.company.id,
         name: invoiceLine.company.name,
         logoUrl: invoiceLine.company.branding?.logoUrl || null,
+        contactName: invoiceLine.company.users[0]?.name || null,
+        mobile: invoiceLine.company.users[0]?.mobile || null,
+        email: invoiceLine.company.users[0]?.email || null,
+        address: invoiceLine.company.users[0]?.address || null,
       },
       customer: invoiceLine.party
-        ? { id: invoiceLine.party.id, name: invoiceLine.party.partyName }
+        ? {
+            id: invoiceLine.party.id,
+            name: invoiceLine.party.partyName,
+            shopName: invoiceLine.party.shopName,
+            mobile: invoiceLine.party.mobile,
+            email: invoiceLine.party.email,
+            address: invoiceLine.party.address,
+            city: invoiceLine.party.city,
+            state: invoiceLine.party.state,
+            country: invoiceLine.party.country,
+            pincode: invoiceLine.party.pincode,
+          }
         : null,
       sale: invoiceGroup,
     },
@@ -751,9 +815,9 @@ const saveSaleInvoice = async (req, existingSaleNumber, existingId) => {
       .toFixed(2),
   );
 
-  const requestedSaleNumber = String(req.body.saleNumber || "").trim();
   const saleNumber =
-    requestedSaleNumber || existingSaleNumber || String(Date.now());
+    existingSaleNumber ||
+    (await generateInvoiceNumber(req.auth.companyId));
 
   const lineWrites = lines.map((line) =>
     buildLineWriteData(req.body, line, saleNumber, netTotalSalePrice),

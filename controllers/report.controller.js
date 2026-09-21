@@ -48,3 +48,17 @@ exports.getById = async (req, res) => {
   if (!report) throw new AppError(404, "Report not found.");
   return res.json({ report: presentReport(report, req.auth.role) });
 };
+
+exports.remove = async (req, res) => {
+  const id = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) throw new AppError(400, "Invalid report id.");
+
+  const report = await prisma.report.findFirst({
+    where: { id, companyId: req.auth.companyId },
+    select: { id: true },
+  });
+  if (!report) throw new AppError(404, "Report not found.");
+
+  await prisma.report.delete({ where: { id: report.id } });
+  return res.json({ message: "Report deleted successfully." });
+};
