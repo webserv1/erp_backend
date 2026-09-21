@@ -1,9 +1,14 @@
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+const { spawn } = require("child_process");
+const { pipeline } = require("stream");
+const { promisify } = require("util");
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 
 const BRANDING_DIRECTORY = path.join(__dirname, "..", "uploads", "branding");
+const streamPipeline = promisify(pipeline);
 
 const VALID_HEX_COLOR = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
 
@@ -148,4 +153,137 @@ exports.deleteFavicon = async (req, res) => {
   });
 
   return res.json({ message: "Favicon deleted successfully." });
+};
+
+const readDatabaseConfig = () => {
+  const dbHost = process.env.DB_HOST;
+  const dbPort = process.env.DB_PORT;
+  const dbUser = process.env.DB_USER;
+  const dbPassword = process.env.DB_PASSWORD;
+  const dbName = process.env.DB_NAME;
+  const dbSslMode = process.env.DB_SSLMODE || process.env.PGSSLMODE;
+
+  if (dbHost && dbPort && dbUser && dbPassword && dbName) {
+    return {
+      host: dbHost,
+      port: dbPort,
+      user: dbUser,
+      password: dbPassword,
+      database: dbName,
+      sslmode: dbSslMode || null,
+    };
+  }
+
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new AppError(500, "Database connection env is missing. Configure DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME or DATABASE_URL.");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new AppError(500, "DATABASE_URL is invalid.");
+  }
+
+  const dbNameFromUrl = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  if (!dbNameFromUrl) {
+    throw new AppError(500, "DATABASE_URL must include a database name.");
+  }
+
+  return {
+    host: parsed.hostname,
+    port: parsed.port || "5432",
+    user: decodeURIComponent(parsed.username || ""),
+    password: decodeURIComponent(parsed.password || ""),
+    database: dbNameFromUrl,
+    sslmode: parsed.searchParams.get("sslmode") || dbSslMode || null,
+  };
+};
+
+const runPgDumpToFile = (databaseConfig, outputFilePath) =>
+  new Promise((resolve, reject) => {
+    const args = [
+      "--file",
+      outputFilePath,
+      "--format=plain",
+      "--no-owner",
+      "--no-privileges",
+      "--encoding=UTF8",
+      "--host",
+      databaseConfig.host,
+      "--port",
+      databaseConfig.port,
+      "--username",
+      databaseConfig.user,
+      databaseConfig.database,
+    ];
+
+    if (databaseConfig.sslmode) {
+      args.push("--sslmode", databaseConfig.sslmode);
+    }
+
+    const env = { ...process.env };
+    if (databaseConfig.password) {
+      env.PGPASSWORD = databaseConfig.password;
+    }
+
+    const pgDump = spawn("pg_dump", args, { env });
+    let stderr = "";
+
+    pgDump.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    pgDump.on("error", (error) => {
+      if (error.code === "ENOENT") {
+        reject(new AppError(500, "pg_dump is not available on the server. Install PostgreSQL client tools and ensure pg_dump is in PATH."));
+        return;
+      }
+      reject(error);
+    });
+
+    pgDump.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      const details = stderr.trim();
+      reject(new AppError(500, details ? `Database backup failed: ${details}` : "Database backup failed while running pg_dump."));
+    });
+  });
+
+exports.downloadCompanyBackup = async (req, res) => {
+  const company = await prisma.company.findUnique({
+    where: { id: req.auth.companyId },
+    select: { id: true, name: true },
+  });
+  if (!company) {
+    throw new AppError(404, "Company not found.");
+  }
+
+  const dbConfig = readDatabaseConfig();
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeCompanyName = company.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const baseName = `erp_backup_${safeCompanyName}_${timestamp}`;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "erp-db-backup-"));
+  const sqlFilePath = path.join(tempDir, `${baseName}.sql`);
+  const downloadFileName = `${baseName}.sql`;
+
+  try {
+    await runPgDumpToFile(dbConfig, sqlFilePath);
+
+    res.setHeader("Content-Type", "application/sql; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${downloadFileName}"`);
+    await streamPipeline(fs.createReadStream(sqlFilePath), res);
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+    if (!res.headersSent) {
+      throw new AppError(500, "Failed to generate database backup.");
+    }
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+  }
 };

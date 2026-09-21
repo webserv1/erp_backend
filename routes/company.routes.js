@@ -7,6 +7,7 @@ const upload = require("../middleware/upload");
 const router = express.Router();
 
 router.get("/branding", requireAuth, asyncHandler(company.getBranding));
+router.get("/backup", requireAuth, authorizeRoles("ADMIN"), asyncHandler(company.downloadCompanyBackup));
 router.put("/branding", requireAuth, authorizeRoles("ADMIN", "MANAGER"), upload, asyncHandler(company.upsertBranding));
 router.delete("/branding/logo", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(company.deleteLogo));
 router.delete("/branding/background", requireAuth, authorizeRoles("ADMIN", "MANAGER"), asyncHandler(company.deleteBackground));
