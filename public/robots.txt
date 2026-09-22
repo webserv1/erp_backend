@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://erp-frontend-kappa-two.vercel.app/sitemap.xml
