@@ -4,7 +4,6 @@ const dotenv = require("dotenv");
 const helmet = require("helmet");
 const session = require("express-session");
 const connectPgSimple = require("connect-pg-simple");
-const path = require("path");
 const pool = require("./config/db");
 const prisma = require("./lib/prisma");
 const authRoutes = require("./routes/auth.routes");
@@ -21,6 +20,7 @@ const expenseRoutes = require("./routes/expense.routes");
 const reportRoutes = require("./routes/report.routes");
 const companyProfileRoutes = require("./routes/company-profile.routes");
 const AppError = require("./utils/app-error");
+const uploadDirectories = require("./config/upload-paths");
 
 dotenv.config();
 
@@ -58,7 +58,7 @@ app.use(
     },
   }),
 );
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(uploadDirectories.root));
 
 app.get("/", async (req, res, next) => {
   try {

@@ -6,8 +6,9 @@ const { pipeline } = require("stream");
 const { promisify } = require("util");
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
+const uploadDirectories = require("../config/upload-paths");
 
-const BRANDING_DIRECTORY = path.join(__dirname, "..", "uploads", "branding");
+const BRANDING_DIRECTORY = uploadDirectories.branding;
 const streamPipeline = promisify(pipeline);
 
 const VALID_HEX_COLOR = /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$/;
@@ -27,7 +28,8 @@ const PUBLIC_BRANDING_FIELDS = {
 
 const deleteFileIfExists = (filePath) => {
   if (!filePath) return;
-  const absolutePath = path.join(__dirname, "..", filePath);
+  const absolutePath = uploadDirectories.resolveUploadPath(filePath);
+  if (!absolutePath) return;
   if (fs.existsSync(absolutePath)) {
     fs.unlinkSync(absolutePath);
   }

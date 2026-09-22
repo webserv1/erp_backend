@@ -1,33 +1,21 @@
-const fs = require("fs");
-const path = require("path");
 const multer = require("multer");
 const AppError = require("../utils/app-error");
-
-const uploadRoot = path.join(__dirname, "..", "uploads");
-const photoDirectory = path.join(uploadRoot, "photos");
-const signatureDirectory = path.join(uploadRoot, "signatures");
-const documentDirectory = path.join(uploadRoot, "documents");
-const productDirectory = path.join(uploadRoot, "products");
-const brandingDirectory = path.join(uploadRoot, "branding");
-const expenseDirectory = path.join(uploadRoot, "expenses");
-
-[photoDirectory, signatureDirectory, documentDirectory, productDirectory, brandingDirectory, expenseDirectory].forEach((directory) => {
-  fs.mkdirSync(directory, { recursive: true });
-});
+const path = require("path");
+const uploadDirectories = require("../config/upload-paths");
 
 const storage = multer.diskStorage({
   destination: (req, file, callback) => {
     const directory = file.fieldname === "photo"
-      ? photoDirectory
+      ? uploadDirectories.photos
       : file.fieldname === "signature"
-        ? signatureDirectory
+        ? uploadDirectories.signatures
         : file.fieldname === "productImage"
-          ? productDirectory
+          ? uploadDirectories.products
           : file.fieldname === "logo" || file.fieldname === "background" || file.fieldname === "favicon"
-            ? brandingDirectory
+            ? uploadDirectories.branding
             : file.fieldname === "bill"
-              ? expenseDirectory
-              : documentDirectory;
+              ? uploadDirectories.expenses
+              : uploadDirectories.documents;
     callback(null, directory);
   },
   filename: (req, file, callback) => {

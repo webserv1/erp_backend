@@ -1,9 +1,9 @@
 const fs = require("fs");
-const path = require("path");
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
+const uploadDirectories = require("../config/upload-paths");
 
-const EXPENSE_DIRECTORY = path.join(__dirname, "..", "uploads", "expenses");
+const EXPENSE_DIRECTORY = uploadDirectories.expenses;
 
 const PUBLIC_EXPENSE_FIELDS = {
   id: true,
@@ -21,7 +21,8 @@ const PUBLIC_EXPENSE_FIELDS = {
 
 const deleteFileIfExists = (filePath) => {
   if (!filePath) return;
-  const absolutePath = path.join(__dirname, "..", filePath);
+  const absolutePath = uploadDirectories.resolveUploadPath(filePath);
+  if (!absolutePath) return;
   if (fs.existsSync(absolutePath)) {
     fs.unlinkSync(absolutePath);
   }
