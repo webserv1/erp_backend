@@ -1,6 +1,7 @@
 const prisma = require("../lib/prisma");
 const { Gender } = require("@prisma/client");
 const AppError = require("../utils/app-error");
+const { deleteUploadAsset } = require("../utils/upload-asset-store");
 
 const PROFILE_USER_SELECT = {
   id: true,
@@ -86,7 +87,7 @@ exports.updateCompanyUserProfile = async (req, res) => {
 
   const targetUser = await prisma.user.findFirst({
     where: { id: userId, companyId },
-    select: { id: true, role: { select: { name: true } } },
+    select: { id: true, role: { select: { name: true } }, photoUrl: true, signatureUrl: true, panUrl: true, aadhaarUrl: true },
   });
   if (!targetUser) {
     throw new AppError(404, "User profile not found.");
@@ -172,10 +173,22 @@ exports.updateCompanyUserProfile = async (req, res) => {
     data.status = parsedStatus;
   }
 
-  if (files?.photo?.[0]) data.photoUrl = `/uploads/photos/${files.photo[0].filename}`;
-  if (files?.signature?.[0]) data.signatureUrl = `/uploads/signatures/${files.signature[0].filename}`;
-  if (files?.pan?.[0]) data.panUrl = `/uploads/documents/${files.pan[0].filename}`;
-  if (files?.aadhaar?.[0]) data.aadhaarUrl = `/uploads/documents/${files.aadhaar[0].filename}`;
+  if (files?.photo?.[0]) {
+    await deleteUploadAsset(targetUser.photoUrl);
+    data.photoUrl = `/uploads/photos/${files.photo[0].filename}`;
+  }
+  if (files?.signature?.[0]) {
+    await deleteUploadAsset(targetUser.signatureUrl);
+    data.signatureUrl = `/uploads/signatures/${files.signature[0].filename}`;
+  }
+  if (files?.pan?.[0]) {
+    await deleteUploadAsset(targetUser.panUrl);
+    data.panUrl = `/uploads/documents/${files.pan[0].filename}`;
+  }
+  if (files?.aadhaar?.[0]) {
+    await deleteUploadAsset(targetUser.aadhaarUrl);
+    data.aadhaarUrl = `/uploads/documents/${files.aadhaar[0].filename}`;
+  }
 
   if (Object.keys(data).length === 0) {
     throw new AppError(400, "No profile fields were provided for update.");
@@ -214,7 +227,7 @@ exports.deleteCompanyUserProfile = async (req, res) => {
 
   const targetUser = await prisma.user.findFirst({
     where: { id: userId, companyId },
-    select: { id: true, name: true, role: { select: { name: true } } },
+    select: { id: true, name: true, role: { select: { name: true } }, photoUrl: true, signatureUrl: true, panUrl: true, aadhaarUrl: true },
   });
   if (!targetUser) {
     throw new AppError(404, "User profile not found.");
@@ -224,6 +237,12 @@ exports.deleteCompanyUserProfile = async (req, res) => {
   }
 
   try {
+    await Promise.all([
+      deleteUploadAsset(targetUser.photoUrl),
+      deleteUploadAsset(targetUser.signatureUrl),
+      deleteUploadAsset(targetUser.panUrl),
+      deleteUploadAsset(targetUser.aadhaarUrl),
+    ]);
     await prisma.user.delete({ where: { id: targetUser.id } });
     return res.json({ message: "User profile deleted successfully." });
   } catch (error) {

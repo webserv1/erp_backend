@@ -44,6 +44,15 @@ model Role {
   users User[]
 }
 
+model UploadAsset {
+  id        Int      @id @default(autoincrement())
+  path      String   @unique
+  mimeType  String
+  data      Bytes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model User {
   email            String
   passwordHash     String

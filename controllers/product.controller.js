@@ -1,6 +1,7 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculateTotalPurchaseAmount } = require("../utils/productCalculations");
+const { deleteUploadAsset } = require("../utils/upload-asset-store");
 
 const PRODUCT_SELECT = {
   id: true, companyId: true, productCode: true, productName: true, categoryId: true,
@@ -148,9 +149,12 @@ exports.update = async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) throw new AppError(400, "Invalid product id.");
   validateInput(req.body);
-  const existing = await prisma.product.findFirst({ where: { id, companyId: req.auth.companyId }, select: { id: true } });
+  const existing = await prisma.product.findFirst({ where: { id, companyId: req.auth.companyId }, select: { id: true, productImage: true } });
   if (!existing) throw new AppError(404, "Product not found.");
   const data = dataFrom(req.body, req.files);
+  if (data.productImage) {
+    await deleteUploadAsset(existing.productImage);
+  }
   await validateMasters(req.auth.companyId, data);
   try {
     const product = await prisma.product.update({ where: { id }, data, select: PRODUCT_SELECT });
@@ -164,8 +168,9 @@ exports.update = async (req, res) => {
 exports.remove = async (req, res) => {
   const id = Number.parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) throw new AppError(400, "Invalid product id.");
-  const existing = await prisma.product.findFirst({ where: { id, companyId: req.auth.companyId }, select: { id: true } });
+  const existing = await prisma.product.findFirst({ where: { id, companyId: req.auth.companyId }, select: { id: true, productImage: true } });
   if (!existing) throw new AppError(404, "Product not found.");
+  await deleteUploadAsset(existing.productImage);
   await prisma.product.delete({ where: { id } });
   return res.json({ message: "Product deleted successfully." });
 };

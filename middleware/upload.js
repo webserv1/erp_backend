@@ -2,6 +2,7 @@ const multer = require("multer");
 const AppError = require("../utils/app-error");
 const path = require("path");
 const uploadDirectories = require("../config/upload-paths");
+const { persistUploadedFiles } = require("../utils/upload-asset-store");
 
 const storage = multer.diskStorage({
   destination: (req, file, callback) => {
@@ -36,7 +37,7 @@ const upload = multer({
   },
 });
 
-module.exports = upload.fields([
+const uploader = upload.fields([
   { name: "photo", maxCount: 1 },
   { name: "signature", maxCount: 1 },
   { name: "pan", maxCount: 1 },
@@ -47,3 +48,15 @@ module.exports = upload.fields([
   { name: "favicon", maxCount: 1 },
   { name: "bill", maxCount: 1 },
 ]);
+
+module.exports = (req, res, next) => {
+  uploader(req, res, async (error) => {
+    if (error) return next(error);
+    try {
+      await persistUploadedFiles(req.files);
+      return next();
+    } catch (persistError) {
+      return next(persistError);
+    }
+  });
+};

@@ -7,6 +7,7 @@ const { promisify } = require("util");
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const uploadDirectories = require("../config/upload-paths");
+const { deleteUploadAsset } = require("../utils/upload-asset-store");
 
 const BRANDING_DIRECTORY = uploadDirectories.branding;
 const streamPipeline = promisify(pipeline);
@@ -28,11 +29,7 @@ const PUBLIC_BRANDING_FIELDS = {
 
 const deleteFileIfExists = (filePath) => {
   if (!filePath) return;
-  const absolutePath = uploadDirectories.resolveUploadPath(filePath);
-  if (!absolutePath) return;
-  if (fs.existsSync(absolutePath)) {
-    fs.unlinkSync(absolutePath);
-  }
+  return deleteUploadAsset(filePath);
 };
 
 const validateColor = (color, fieldName) => {
@@ -73,13 +70,13 @@ exports.upsertBranding = async (req, res) => {
 
   if (existing) {
     if (logoFile) {
-      deleteFileIfExists(existing.logoUrl);
+      await deleteFileIfExists(existing.logoUrl);
     }
     if (backgroundFile) {
-      deleteFileIfExists(existing.bgImageUrl);
+      await deleteFileIfExists(existing.bgImageUrl);
     }
     if (faviconFile) {
-      deleteFileIfExists(existing.faviconUrl);
+      await deleteFileIfExists(existing.faviconUrl);
     }
   }
 
@@ -111,7 +108,7 @@ exports.deleteLogo = async (req, res) => {
   if (!branding) throw new AppError(404, "Branding not found.");
   if (!branding.logoUrl) throw new AppError(400, "No logo to delete.");
 
-  deleteFileIfExists(branding.logoUrl);
+  await deleteFileIfExists(branding.logoUrl);
 
   await prisma.companyBranding.update({
     where: { id: branding.id },
@@ -129,7 +126,7 @@ exports.deleteBackground = async (req, res) => {
   if (!branding) throw new AppError(404, "Branding not found.");
   if (!branding.bgImageUrl) throw new AppError(400, "No background image to delete.");
 
-  deleteFileIfExists(branding.bgImageUrl);
+  await deleteFileIfExists(branding.bgImageUrl);
 
   await prisma.companyBranding.update({
     where: { id: branding.id },
@@ -147,7 +144,7 @@ exports.deleteFavicon = async (req, res) => {
   if (!branding) throw new AppError(404, "Branding not found.");
   if (!branding.faviconUrl) throw new AppError(400, "No favicon to delete.");
 
-  deleteFileIfExists(branding.faviconUrl);
+  await deleteFileIfExists(branding.faviconUrl);
 
   await prisma.companyBranding.update({
     where: { id: branding.id },

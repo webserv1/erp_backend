@@ -21,6 +21,7 @@ const reportRoutes = require("./routes/report.routes");
 const companyProfileRoutes = require("./routes/company-profile.routes");
 const AppError = require("./utils/app-error");
 const uploadDirectories = require("./config/upload-paths");
+const { getUploadAsset } = require("./utils/upload-asset-store");
 
 dotenv.config();
 
@@ -58,6 +59,19 @@ app.use(
     },
   }),
 );
+app.get("/uploads/:directory/:fileName", async (req, res, next) => {
+  try {
+    const pathName = `/uploads/${req.params.directory}/${req.params.fileName}`;
+    const asset = await getUploadAsset(pathName);
+    if (asset?.data) {
+      res.setHeader("Content-Type", asset.mimeType || "application/octet-stream");
+      return res.send(asset.data);
+    }
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
 app.use("/uploads", express.static(uploadDirectories.root));
 
 app.get("/", async (req, res, next) => {

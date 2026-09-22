@@ -1,9 +1,6 @@
-const fs = require("fs");
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
-const uploadDirectories = require("../config/upload-paths");
-
-const EXPENSE_DIRECTORY = uploadDirectories.expenses;
+const { deleteUploadAsset } = require("../utils/upload-asset-store");
 
 const PUBLIC_EXPENSE_FIELDS = {
   id: true,
@@ -21,11 +18,7 @@ const PUBLIC_EXPENSE_FIELDS = {
 
 const deleteFileIfExists = (filePath) => {
   if (!filePath) return;
-  const absolutePath = uploadDirectories.resolveUploadPath(filePath);
-  if (!absolutePath) return;
-  if (fs.existsSync(absolutePath)) {
-    fs.unlinkSync(absolutePath);
-  }
+  return deleteUploadAsset(filePath);
 };
 
 exports.getSummary = async (req, res) => {
@@ -150,7 +143,7 @@ exports.update = async (req, res) => {
   const billFile = req.files?.bill?.[0];
 
   if (billFile) {
-    deleteFileIfExists(existing.billUrl);
+    await deleteFileIfExists(existing.billUrl);
   }
 
   const data = {
@@ -180,7 +173,7 @@ exports.remove = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Expense not found.");
 
-  deleteFileIfExists(existing.billUrl);
+  await deleteFileIfExists(existing.billUrl);
 
   await prisma.expense.delete({ where: { id } });
   return res.json({ message: "Expense deleted successfully." });
