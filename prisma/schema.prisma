@@ -111,7 +111,7 @@ model ProductMaster {
   saleSizes                        SaleSize[]
   stocksAsSize                     Stock[]    @relation("StockSize")
 
-  @@unique([companyId, type, name])
+  @@unique([companyId, type, categoryId, name])
   @@index([companyId, type])
   @@index([companyId, categoryId])
 }

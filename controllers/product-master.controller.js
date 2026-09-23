@@ -66,7 +66,7 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
     if (!name) continue;
 
     const existing = await tx.productMaster.findFirst({
-      where: { companyId, type, name },
+      where: { companyId, type, name, categoryId },
       select: { id: true },
     });
 
@@ -92,8 +92,8 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
   }
 };
 
-// A master name is unique per company and type. When an existing master is
-// selected for another category, re-attach it by updating categoryId.
+// A master is scoped to category. When an existing master is selected for a
+// different category, create a category-specific copy instead of moving it.
 const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterIds, type) => {
   if (!masterIds.length) return;
 
@@ -107,12 +107,28 @@ const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterId
 
   for (const master of masters) {
     if (master.categoryId === categoryId) continue;
-    await tx.productMaster.update({
-      where: { id: master.id },
-      data: { categoryId },
+    const alreadyAttached = await tx.productMaster.findFirst({
+      where: { companyId, type, name: master.name, categoryId },
+      select: { id: true },
     });
+    if (!alreadyAttached) {
+      await tx.productMaster.create({
+        data: {
+          companyId,
+          type,
+          name: master.name,
+          status: master.status,
+          unit: master.unit,
+          quantity: master.quantity,
+          purchaseAmount: master.purchaseAmount,
+          saleAmount: master.saleAmount,
+          categoryId,
+        },
+      });
+    }
   }
 };
+
 
 const countMasterReferencesTx = async (tx, companyId, masterId) => {
   const [products, sales, stock] = await Promise.all([
