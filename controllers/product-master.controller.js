@@ -66,7 +66,7 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
     if (!name) continue;
 
     const existing = await tx.productMaster.findFirst({
-    where: { companyId, type, name, categoryId },
+      where: { companyId, type, name },
       select: { id: true },
     });
 
@@ -92,8 +92,8 @@ const attachNestedMasters = async (tx, companyId, categoryId, entries, type) => 
   }
 };
 
-// A master belongs to one category. When an existing master is selected for a
-// different category, create a category-specific copy instead of moving it.
+// A master name is unique per company and type. When an existing master is
+// selected for another category, re-attach it by updating categoryId.
 const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterIds, type) => {
   if (!masterIds.length) return;
 
@@ -107,25 +107,10 @@ const copySelectedMastersToCategory = async (tx, companyId, categoryId, masterId
 
   for (const master of masters) {
     if (master.categoryId === categoryId) continue;
-    const alreadyAttached = await tx.productMaster.findFirst({
-      where: { companyId, type, name: master.name, categoryId },
-      select: { id: true },
+    await tx.productMaster.update({
+      where: { id: master.id },
+      data: { categoryId },
     });
-    if (!alreadyAttached) {
-      await tx.productMaster.create({
-        data: {
-          companyId,
-          type,
-          name: master.name,
-          status: master.status,
-          unit: master.unit,
-          quantity: master.quantity,
-          purchaseAmount: master.purchaseAmount,
-          saleAmount: master.saleAmount,
-          categoryId,
-        },
-      });
-    }
   }
 };
 
@@ -393,45 +378,53 @@ exports.createCategory = async (req, res) => {
   const uniqueColors = Array.from(new Map(normalizedColors.map((c) => [c.name.trim(), c])).values());
   const uniqueSizes = Array.from(new Map(normalizedSizes.map((s) => [s.name.trim(), s])).values());
 
-  const category = await prisma.$transaction(async (tx) => {
-    const newCategory = await tx.productMaster.create({
-      data: {
-        companyId: req.auth.companyId,
-        type: "CATEGORY",
-        name: trimmedName,
-        status: normalizedStatus,
-        unit: normalizedUnit,
-        quantity: quantity ? parseInt(quantity, 10) : null,
-        purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-        saleAmount: saleAmount ? Number(saleAmount) : null,
-      },
-      select: PUBLIC_MASTER_FIELDS,
+  let category;
+  try {
+    category = await prisma.$transaction(async (tx) => {
+      const newCategory = await tx.productMaster.create({
+        data: {
+          companyId: req.auth.companyId,
+          type: "CATEGORY",
+          name: trimmedName,
+          status: normalizedStatus,
+          unit: normalizedUnit,
+          quantity: quantity ? parseInt(quantity, 10) : null,
+          purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
+          saleAmount: saleAmount ? Number(saleAmount) : null,
+        },
+        select: PUBLIC_MASTER_FIELDS,
+      });
+
+      await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueBrands, "BRAND");
+      await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueColors, "COLOR");
+      await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueSizes, "SIZE");
+
+      const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
+      const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
+      const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
+
+      await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validBrandIds, "BRAND");
+      await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validColorIds, "COLOR");
+      await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validSizeIds, "SIZE");
+
+      const related = await tx.productMaster.findMany({
+        where: { companyId: req.auth.companyId, categoryId: newCategory.id },
+        select: PUBLIC_MASTER_FIELDS,
+      });
+
+      return {
+        ...withTotalPurchaseAmount(newCategory),
+        brands: related.filter((m) => m.type === "BRAND"),
+        colors: related.filter((m) => m.type === "COLOR"),
+        sizes: related.filter((m) => m.type === "SIZE"),
+      };
     });
-
-    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueBrands, "BRAND");
-    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueColors, "COLOR");
-    await attachNestedMasters(tx, req.auth.companyId, newCategory.id, uniqueSizes, "SIZE");
-
-    const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-    const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-    const validSizeIds = (Array.isArray(sizeIds) ? sizeIds : [sizeIds]).filter((id) => !Number.isNaN(parseInt(id, 10))).map((id) => parseInt(id, 10));
-
-    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validBrandIds, "BRAND");
-    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validColorIds, "COLOR");
-    await copySelectedMastersToCategory(tx, req.auth.companyId, newCategory.id, validSizeIds, "SIZE");
-
-    const related = await tx.productMaster.findMany({
-      where: { companyId: req.auth.companyId, categoryId: newCategory.id },
-      select: PUBLIC_MASTER_FIELDS,
-    });
-
-    return {
-      ...withTotalPurchaseAmount(newCategory),
-      brands: related.filter((m) => m.type === "BRAND"),
-      colors: related.filter((m) => m.type === "COLOR"),
-      sizes: related.filter((m) => m.type === "SIZE"),
-    };
-  });
+  } catch (error) {
+    if (error.code === "P2002") {
+      throw new AppError(409, "One or more selected brand/color/size names already exist and caused a duplicate.");
+    }
+    throw error;
+  }
 
   return res.status(201).json({ message: "Category created successfully.", category });
 };
@@ -490,31 +483,33 @@ exports.updateCategory = async (req, res) => {
     Object.prototype.hasOwnProperty.call(req.body, "sizes") ||
     Object.prototype.hasOwnProperty.call(req.body, "sizeIds");
 
-  const updatedCategory = await prisma.$transaction(async (tx) => {
-    await tx.productMaster.update({
-      where: { id },
-      data: {
-        name: name.trim(),
-        status: normalizedStatus,
-        unit: normalizedUnit,
-        quantity: quantity ? parseInt(quantity, 10) : null,
-        purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-        saleAmount: saleAmount ? Number(saleAmount) : null,
-      },
-    });
+  let updatedCategory;
+  try {
+    updatedCategory = await prisma.$transaction(async (tx) => {
+      await tx.productMaster.update({
+        where: { id },
+        data: {
+          name: name.trim(),
+          status: normalizedStatus,
+          unit: normalizedUnit,
+          quantity: quantity ? parseInt(quantity, 10) : null,
+          purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
+          saleAmount: saleAmount ? Number(saleAmount) : null,
+        },
+      });
 
-    const existingBrands = await tx.productMaster.findMany({
-      where: { companyId: req.auth.companyId, categoryId: id, type: "BRAND" },
-      select: { id: true, name: true },
-    });
-    const existingColors = await tx.productMaster.findMany({
-      where: { companyId: req.auth.companyId, categoryId: id, type: "COLOR" },
-      select: { id: true, name: true },
-    });
-    const existingSizes = await tx.productMaster.findMany({
-      where: { companyId: req.auth.companyId, categoryId: id, type: "SIZE" },
-      select: { id: true, name: true },
-    });
+      const existingBrands = await tx.productMaster.findMany({
+        where: { companyId: req.auth.companyId, categoryId: id, type: "BRAND" },
+        select: { id: true, name: true },
+      });
+      const existingColors = await tx.productMaster.findMany({
+        where: { companyId: req.auth.companyId, categoryId: id, type: "COLOR" },
+        select: { id: true, name: true },
+      });
+      const existingSizes = await tx.productMaster.findMany({
+        where: { companyId: req.auth.companyId, categoryId: id, type: "SIZE" },
+        select: { id: true, name: true },
+      });
 
     const validBrandIds = (Array.isArray(brandIds) ? brandIds : [brandIds]).filter((entry) => !Number.isNaN(parseInt(entry, 10))).map((entry) => parseInt(entry, 10));
     const validColorIds = (Array.isArray(colorIds) ? colorIds : [colorIds]).filter((entry) => !Number.isNaN(parseInt(entry, 10))).map((entry) => parseInt(entry, 10));
@@ -581,20 +576,26 @@ exports.updateCategory = async (req, res) => {
       select: PUBLIC_MASTER_FIELDS,
     });
 
-    return {
-      ...existing,
-      name: name.trim(),
-      status: normalizedStatus,
-      unit: normalizedUnit,
-      quantity: quantity ? parseInt(quantity, 10) : null,
-      purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-      totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount, normalizedUnit),
-      saleAmount: saleAmount ? Number(saleAmount) : null,
-      brands: related.filter((m) => m.type === "BRAND"),
-      colors: related.filter((m) => m.type === "COLOR"),
-      sizes: related.filter((m) => m.type === "SIZE"),
-    };
-  });
+      return {
+        ...existing,
+        name: name.trim(),
+        status: normalizedStatus,
+        unit: normalizedUnit,
+        quantity: quantity ? parseInt(quantity, 10) : null,
+        purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
+        totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount, normalizedUnit),
+        saleAmount: saleAmount ? Number(saleAmount) : null,
+        brands: related.filter((m) => m.type === "BRAND"),
+        colors: related.filter((m) => m.type === "COLOR"),
+        sizes: related.filter((m) => m.type === "SIZE"),
+      };
+    });
+  } catch (error) {
+    if (error.code === "P2002") {
+      throw new AppError(409, "One or more selected brand/color/size names already exist and caused a duplicate.");
+    }
+    throw error;
+  }
 
   return res.json({ message: "Category updated successfully.", category: updatedCategory });
 };
