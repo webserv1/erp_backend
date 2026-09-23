@@ -100,6 +100,35 @@ const withSupplierBalances = async (purchases, companyId) => {
   });
 };
 
+const resetSupplierPaymentsWhenNoPurchases = async (tx, companyId, supplierIds) => {
+  const normalizedSupplierIds = [...new Set((supplierIds || []).filter(Number.isInteger))];
+  if (!normalizedSupplierIds.length) return;
+
+  const [totals, suppliers] = await Promise.all([
+    tx.purchase.groupBy({
+      by: ["supplierId"],
+      where: { companyId, status: true, supplierId: { in: normalizedSupplierIds } },
+      _sum: { totalPurchaseAmount: true },
+    }),
+    tx.supplier.findMany({
+      where: { companyId, id: { in: normalizedSupplierIds } },
+      select: { id: true, paidAmount: true, paymentStatus: true },
+    }),
+  ]);
+
+  const totalBySupplier = new Map(totals.map((row) => [row.supplierId, Number(row._sum.totalPurchaseAmount) || 0]));
+  const suppliersToReset = suppliers
+    .filter((supplier) => (totalBySupplier.get(supplier.id) || 0) <= 0 && ((Number(supplier.paidAmount) || 0) !== 0 || supplier.paymentStatus !== "UNPAID"))
+    .map((supplier) => supplier.id);
+
+  for (const supplierId of suppliersToReset) {
+    await tx.supplier.update({
+      where: { id: supplierId },
+      data: { paidAmount: 0, paymentStatus: "UNPAID" },
+    });
+  }
+};
+
 const groupPurchases = (purchases) => {
   const groups = new Map();
   purchases.forEach((purchase) => {
@@ -194,10 +223,24 @@ exports.update = async (req, res) => {
   await getSupplier(req.auth.companyId, req.body.supplierId);
   const products = await getProducts(req.auth.companyId, items);
   const purchaseNumber = String(req.body.purchaseNumber).trim();
-  await prisma.$transaction([
-    prisma.purchase.deleteMany({ where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber } }),
-    ...items.map((item) => prisma.purchase.create({ data: lineData(req.body, item, products.get(String(item.productCode).trim()), req.auth.companyId) })),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    const existingLines = await tx.purchase.findMany({
+      where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber },
+      select: { supplierId: true },
+    });
+
+    await tx.purchase.deleteMany({ where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber } });
+
+    for (const item of items) {
+      await tx.purchase.create({ data: lineData(req.body, item, products.get(String(item.productCode).trim()), req.auth.companyId) });
+    }
+
+    const supplierIdsToCheck = [
+      ...existingLines.map((line) => line.supplierId),
+      parseInt(req.body.supplierId, 10),
+    ];
+    await resetSupplierPaymentsWhenNoPurchases(tx, req.auth.companyId, supplierIdsToCheck);
+  });
   return res.json({ message: "Purchase invoice updated successfully.", purchase: await loadInvoice(req.auth.companyId, purchaseNumber) });
 };
 
@@ -206,6 +249,13 @@ exports.remove = async (req, res) => {
   if (Number.isNaN(id)) throw new AppError(400, "Invalid purchase id.");
   const existing = await prisma.purchase.findFirst({ where: { id, companyId: req.auth.companyId }, select: { purchaseNumber: true } });
   if (!existing) throw new AppError(404, "Purchase not found.");
-  await prisma.purchase.deleteMany({ where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber } });
+  await prisma.$transaction(async (tx) => {
+    const lines = await tx.purchase.findMany({
+      where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber },
+      select: { supplierId: true },
+    });
+    await tx.purchase.deleteMany({ where: { companyId: req.auth.companyId, purchaseNumber: existing.purchaseNumber } });
+    await resetSupplierPaymentsWhenNoPurchases(tx, req.auth.companyId, lines.map((line) => line.supplierId));
+  });
   return res.json({ message: "Purchase invoice deleted successfully." });
 };
