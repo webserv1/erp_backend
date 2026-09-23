@@ -51,7 +51,11 @@ exports.getDashboard = async (req, res) => {
       prisma.purchase.groupBy({ by: ["supplierId"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { totalPurchaseAmount: true } }),
       prisma.supplier.findMany({ where: { companyId }, select: { id: true, name: true, paidAmount: true } }),
       prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null }, remainingAmount: { gt: 0 }, createdAt: { lte: overdueDate } }, _sum: { remainingAmount: true }, _min: { createdAt: true }, orderBy: { _min: { createdAt: "asc" } } }),
-      prisma.sale.findFirst({ where: { companyId, status: true, partyId: { not: null } }, select: { id: true, productCode: true, productName: true, salePrice: true, createdAt: true, partyId: true, partyName: true }, orderBy: { createdAt: "desc" } }),
+      prisma.sale.findFirst({
+        where: { companyId, status: true, partyId: { not: null } },
+        select: { id: true, productCode: true, productName: true, salePrice: true, total: true, createdAt: true, partyId: true, partyName: true },
+        orderBy: { createdAt: "desc" },
+      }),
     ]);
 
   const parties = partyBalances.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", amount: Number(party._sum.remainingAmount) || 0 }));
@@ -94,7 +98,17 @@ exports.getDashboard = async (req, res) => {
         highestSupplier: suppliers[0] || null,
       },
       overduePartyReminders: overdueParties.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", amount: Number(party._sum.remainingAmount) || 0, overdueSince: party._min.createdAt })),
-      lastPartyPurchase: lastPartySale ? { id: lastPartySale.id, partyId: lastPartySale.partyId, partyName: lastPartySale.partyName || "Unknown Party", productCode: lastPartySale.productCode, productName: lastPartySale.productName, salePrice: Number(lastPartySale.salePrice), createdAt: lastPartySale.createdAt } : null,
+      lastPartyPurchase: lastPartySale
+        ? {
+            id: lastPartySale.id,
+            partyId: lastPartySale.partyId,
+            partyName: lastPartySale.partyName || "Unknown Party",
+            productCode: lastPartySale.productCode,
+            productName: lastPartySale.productName,
+            salePrice: Number(lastPartySale.total ?? lastPartySale.salePrice),
+            createdAt: lastPartySale.createdAt,
+          }
+        : null,
     },
   });
 };
