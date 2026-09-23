@@ -7,6 +7,13 @@ const getTodayRange = () => {
   return { startOfDay, endOfDay };
 };
 
+const calculateLineTotalSalePrice = (quantity, unit, salePrice) => {
+  const qty = Number(quantity) || 0;
+  const price = Number(salePrice) || 0;
+  const multiplier = String(unit || "PIECES").toUpperCase() === "DOZEN" ? 12 : 1;
+  return qty * multiplier * price;
+};
+
 exports.getDashboard = async (req, res) => {
   const companyId = req.auth.companyId;
   const isAdmin = req.auth.role === "ADMIN";
@@ -53,10 +60,23 @@ exports.getDashboard = async (req, res) => {
       prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null }, remainingAmount: { gt: 0 }, createdAt: { lte: overdueDate } }, _sum: { remainingAmount: true }, _min: { createdAt: true }, orderBy: { _min: { createdAt: "asc" } } }),
       prisma.sale.findFirst({
         where: { companyId, status: true, partyId: { not: null } },
-        select: { id: true, productCode: true, productName: true, salePrice: true, total: true, createdAt: true, partyId: true, partyName: true },
+        select: { id: true, productCode: true, productName: true, salePrice: true, quantity: true, unit: true, createdAt: true, partyId: true, partyName: true },
         orderBy: { createdAt: "desc" },
       }),
     ]);
+
+  let lastPartyNetTotalSalePrice = 0;
+  if (lastPartySale?.partyId) {
+    const partySales = await prisma.sale.findMany({
+      where: { companyId, status: true, partyId: lastPartySale.partyId },
+      select: { quantity: true, unit: true, salePrice: true },
+    });
+    lastPartyNetTotalSalePrice = Number(
+      partySales
+        .reduce((sum, line) => sum + calculateLineTotalSalePrice(line.quantity, line.unit, line.salePrice), 0)
+        .toFixed(2),
+    );
+  }
 
   const parties = partyBalances.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", amount: Number(party._sum.remainingAmount) || 0 }));
   const supplierById = new Map(supplierRecords.map((supplier) => [supplier.id, supplier]));
@@ -105,7 +125,8 @@ exports.getDashboard = async (req, res) => {
             partyName: lastPartySale.partyName || "Unknown Party",
             productCode: lastPartySale.productCode,
             productName: lastPartySale.productName,
-            salePrice: Number(lastPartySale.total ?? lastPartySale.salePrice),
+            salePrice: lastPartyNetTotalSalePrice,
+            netTotalSalePrice: lastPartyNetTotalSalePrice,
             createdAt: lastPartySale.createdAt,
           }
         : null,
