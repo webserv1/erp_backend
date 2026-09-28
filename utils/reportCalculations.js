@@ -104,11 +104,14 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
     };
   }).sort((a, b) => b.balance - a.balance);
   const salesSummary = Array.isArray(salesAgg) ? salesAgg[0] : salesAgg;
+  const totalSales = Number(salesSummary?.total) || 0;
+  const totalPurchases = Number(purchasesAgg._sum.totalPurchaseAmount) || 0;
+  const totalExpenses = Number(expensesAgg._sum.amount) || 0;
   return {
-    sales: { count: Number(salesSummary?.count) || 0, total: Number(salesSummary?.total) || 0, profit: Number(salesSummary?.profit) || 0 },
-    purchases: { count: purchasesAgg._count.id, total: Number(purchasesAgg._sum.totalPurchaseAmount) || 0 },
-    expenses: { count: expensesAgg._count.id, total: Number(expensesAgg._sum.amount) || 0 },
-    netProfit: (Number(salesSummary?.profit) || 0) - (Number(expensesAgg._sum.amount) || 0),
+    sales: { count: Number(salesSummary?.count) || 0, total: totalSales, profit: Number(salesSummary?.profit) || 0 },
+    purchases: { count: purchasesAgg._count.id, total: totalPurchases },
+    expenses: { count: expensesAgg._count.id, total: totalExpenses },
+    netProfit: totalSales - totalPurchases - totalExpenses,
     balances: { partyOutstanding: parties.reduce((sum, party) => sum + party.balance, 0), supplierPayable: suppliers.reduce((sum, supplier) => sum + supplier.balance, 0), parties, suppliers },
     salesTrend,
     topProducts: topProducts.map((product) => ({ productCode: product.productCode, productName: product.productName, quantity: Number(product.quantity) || 0, total: Number(product.total) || 0 })),
