@@ -1,0 +1,2 @@
+ALTER TABLE "public"."Expense"
+ADD COLUMN "expenseDate" DATE NOT NULL DEFAULT CURRENT_DATE;

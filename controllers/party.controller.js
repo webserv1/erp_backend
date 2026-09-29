@@ -29,7 +29,7 @@ const PUBLIC_PARTY_FIELDS = {
 };
 
 const validatePartyInput = (body) => {
-  const required = ["partyName", "shopName", "mobile", "address", "city", "state", "country", "pincode", "status"];
+  const required = ["partyName", "shopName", "mobile", "status"];
   const missing = required.filter((field) => {
     const value = body[field];
     return value === undefined || value === null || (typeof value === "string" && !value.trim());
@@ -39,7 +39,12 @@ const validatePartyInput = (body) => {
   if (!/^\+?[0-9]{7,15}$/.test(String(body.mobile).trim())) {
     throw new AppError(400, "Enter a valid mobile number with 7 to 15 digits.");
   }
-  if (!/^\d+$/.test(String(body.pincode).trim())) {
+  if (
+    body.pincode !== undefined &&
+    body.pincode !== null &&
+    String(body.pincode).trim() &&
+    !/^\d+$/.test(String(body.pincode).trim())
+  ) {
     throw new AppError(400, "Pincode must contain numbers only.");
   }
   if (body.email && !/^\S+@\S+\.\S+$/.test(body.email.trim())) {
@@ -56,11 +61,11 @@ const partyData = (body, values) => ({
   shopName: body.shopName.trim(),
   mobile: String(body.mobile).trim(),
   email: body.email ? String(body.email).trim().toLowerCase() : null,
-  address: body.address.trim(),
-  city: body.city.trim(),
-  state: body.state.trim(),
-  country: body.country.trim(),
-  pincode: String(body.pincode).trim(),
+  address: body.address ? String(body.address).trim() : "",
+  city: body.city ? String(body.city).trim() : "",
+  state: body.state ? String(body.state).trim() : "",
+  country: body.country ? String(body.country).trim() : "",
+  pincode: body.pincode ? String(body.pincode).trim() : "",
   status: normalizeStatus(body.status),
 });
 

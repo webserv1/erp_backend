@@ -315,6 +315,7 @@ model Expense {
   details     String?
   amount      Float    @default(0)
   paymentMode String
+  expenseDate DateTime @default(now()) @db.Date
   billUrl     String?
   createdById Int?
   status      Boolean  @default(true)

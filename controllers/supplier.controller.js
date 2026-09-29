@@ -31,7 +31,7 @@ const PUBLIC_SUPPLIER_FIELDS = {
 };
 
 const validateSupplierInput = (body) => {
-  const required = ["name", "mobile", "address", "city", "state", "country", "pincode", "status"];
+  const required = ["name", "mobile", "status"];
   const missing = required.filter((field) => {
     const value = body[field];
     return value === undefined || value === null || (typeof value === "string" && !value.trim());
@@ -41,7 +41,12 @@ const validateSupplierInput = (body) => {
   if (!/^\+?[0-9]{7,15}$/.test(String(body.mobile).trim())) {
     throw new AppError(400, "Enter a valid mobile number with 7 to 15 digits.");
   }
-  if (!/^\d+$/.test(String(body.pincode).trim())) {
+  if (
+    body.pincode !== undefined &&
+    body.pincode !== null &&
+    String(body.pincode).trim() &&
+    !/^\d+$/.test(String(body.pincode).trim())
+  ) {
     throw new AppError(400, "Pincode must contain numbers only.");
   }
   if (body.paidAmount !== undefined && (Number.isNaN(Number(body.paidAmount)) || Number(body.paidAmount) < 0)) {
@@ -63,11 +68,11 @@ const supplierData = (body, values) => ({
   name: body.name.trim(),
   mobile: String(body.mobile).trim(),
   email: body.email ? String(body.email).trim().toLowerCase() : null,
-  address: body.address.trim(),
-  city: body.city.trim(),
-  state: body.state.trim(),
-  country: body.country.trim(),
-  pincode: String(body.pincode).trim(),
+  address: body.address ? String(body.address).trim() : "",
+  city: body.city ? String(body.city).trim() : "",
+  state: body.state ? String(body.state).trim() : "",
+  country: body.country ? String(body.country).trim() : "",
+  pincode: body.pincode ? String(body.pincode).trim() : "",
   paidAmount: body.paidAmount === undefined ? undefined : Number(body.paidAmount),
   paymentStatus: body.paymentStatus ? String(body.paymentStatus).toUpperCase() : undefined,
   status: normalizeStatus(body.status),

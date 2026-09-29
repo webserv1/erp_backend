@@ -9,6 +9,7 @@ const PUBLIC_EXPENSE_FIELDS = {
   details: true,
   amount: true,
   paymentMode: true,
+  expenseDate: true,
   billUrl: true,
   createdById: true,
   status: true,
@@ -21,6 +22,12 @@ const deleteFileIfExists = (filePath) => {
   return deleteUploadAsset(filePath);
 };
 
+const parseExpenseDate = (value) => {
+  if (!value || !String(value).trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 exports.getSummary = async (req, res) => {
   const companyId = req.auth.companyId;
 
@@ -30,7 +37,7 @@ exports.getSummary = async (req, res) => {
 
   const [thisMonthTotal, totalRecords, activeExpenses] = await Promise.all([
     prisma.expense.aggregate({
-      where: { companyId, createdAt: { gte: monthStart, lte: monthEnd }, status: true },
+      where: { companyId, expenseDate: { gte: monthStart, lte: monthEnd }, status: true },
       _sum: { amount: true },
     }),
     prisma.expense.count({ where: { companyId } }),
@@ -63,15 +70,15 @@ exports.getAll = async (req, res) => {
   if (status !== undefined) where.status = status === "true" || status === true;
 
   if (startDate || endDate) {
-    where.createdAt = {};
-    if (startDate) where.createdAt.gte = new Date(startDate);
-    if (endDate) where.createdAt.lte = new Date(endDate);
+    where.expenseDate = {};
+    if (startDate) where.expenseDate.gte = new Date(startDate);
+    if (endDate) where.expenseDate.lte = new Date(endDate);
   }
 
   const expenses = await prisma.expense.findMany({
     where,
     select: PUBLIC_EXPENSE_FIELDS,
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }],
   });
 
   return res.json({ expenses });
@@ -91,7 +98,7 @@ exports.getById = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
-  const { category, details, amount, paymentMode } = req.body;
+  const { category, details, amount, paymentMode, expenseDate } = req.body;
 
   if (!category || !String(category).trim()) {
     throw new AppError(400, "Category is required.");
@@ -101,6 +108,10 @@ exports.create = async (req, res) => {
   }
   if (!paymentMode || !String(paymentMode).trim()) {
     throw new AppError(400, "Payment mode is required.");
+  }
+  const parsedExpenseDate = parseExpenseDate(expenseDate);
+  if (!parsedExpenseDate) {
+    throw new AppError(400, "Expense date is required.");
   }
 
   const billFile = req.files?.bill?.[0];
@@ -112,6 +123,7 @@ exports.create = async (req, res) => {
       details: details ? String(details).trim() : null,
       amount: Number(amount),
       paymentMode: String(paymentMode).trim().toUpperCase(),
+      expenseDate: parsedExpenseDate,
       billUrl: billFile ? `/uploads/expenses/${billFile.filename}` : null,
       createdById: req.auth.sub,
     },
@@ -131,13 +143,16 @@ exports.update = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Expense not found.");
 
-  const { category, details, amount, paymentMode } = req.body;
+  const { category, details, amount, paymentMode, expenseDate } = req.body;
 
   if (category !== undefined && !String(category).trim()) {
     throw new AppError(400, "Category cannot be empty.");
   }
   if (amount !== undefined && (Number.isNaN(Number(amount)) || Number(amount) < 0)) {
     throw new AppError(400, "Amount must be a non-negative number.");
+  }
+  if (expenseDate !== undefined && !parseExpenseDate(expenseDate)) {
+    throw new AppError(400, "Enter a valid expense date.");
   }
 
   const billFile = req.files?.bill?.[0];
@@ -151,6 +166,7 @@ exports.update = async (req, res) => {
     details: details !== undefined ? (details ? String(details).trim() : null) : undefined,
     amount: amount !== undefined ? Number(amount) : undefined,
     paymentMode: paymentMode ? String(paymentMode).trim().toUpperCase() : undefined,
+    expenseDate: expenseDate !== undefined ? parseExpenseDate(expenseDate) : undefined,
     billUrl: billFile ? `/uploads/expenses/${billFile.filename}` : undefined,
   };
 
