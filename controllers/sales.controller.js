@@ -65,6 +65,7 @@ const SALE_SELECT = {
   salePrice: true,
   purchasePrice: true,
   paidAmount: true,
+  discount: true,
   remainingAmount: true,
   paymentStatus: true,
   perSaleProfit: true,
@@ -234,8 +235,9 @@ const groupSales = (sales) => {
     const netTotalSalePrice = Number(group.netTotalSalePrice.toFixed(2));
     const netTotalPurchaseAmount = Number(group.netTotalPurchaseAmount.toFixed(2));
     const paidAmount = Number(group.paidAmount) || 0;
+    const discount = Number(group.discount) || 0;
     const remainingAmount = Number(
-      calculateRemainingAmount(netTotalSalePrice, paidAmount).toFixed(2),
+      calculateRemainingAmount(netTotalSalePrice, paidAmount, discount).toFixed(2),
     );
     const perSaleProfit = Number(
       calculatePerSaleProfit(netTotalPurchaseAmount, netTotalSalePrice).toFixed(2),
@@ -254,6 +256,7 @@ const groupSales = (sales) => {
       netTotalSalePrice,
       NetTotalsaleprice: netTotalSalePrice,
       netTotalPurchaseAmount,
+      discount,
       netTotalpurchaseamount: netTotalPurchaseAmount,
       remainingAmount,
       perSaleProfit,
@@ -370,6 +373,12 @@ const validateSaleInput = (body) => {
     (Number.isNaN(Number(body.paidAmount)) || Number(body.paidAmount) < 0)
   ) {
     throw new AppError(400, "paidAmount must be a non-negative number.");
+  }
+  if (
+    body.discount !== undefined &&
+    (Number.isNaN(Number(body.discount)) || Number(body.discount) < 0)
+  ) {
+    throw new AppError(400, "discount must be a non-negative number.");
   }
 
   return items;
@@ -505,6 +514,8 @@ const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice) => {
   );
   const lineProfit = calculatePerSaleProfit(lineTotalPurchase, lineTotalSalePrice);
 
+  const discount = body.discount === undefined ? 0 : Number(body.discount);
+
   return {
     saleNumber,
     partyId: Number.parseInt(body.partyId, 10),
@@ -522,9 +533,11 @@ const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice) => {
     purchasePrice: line.purchasePrice,
     total: 0,
     paidAmount: body.paidAmount === undefined ? 0 : Number(body.paidAmount),
+    discount,
     remainingAmount: calculateRemainingAmount(
       netTotalSalePrice,
       body.paidAmount === undefined ? 0 : Number(body.paidAmount),
+      discount,
     ),
     paymentStatus: body.paymentStatus
       ? String(body.paymentStatus).toUpperCase()

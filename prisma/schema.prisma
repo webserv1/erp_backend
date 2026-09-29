@@ -252,6 +252,7 @@ model Sale {
   partyName                                 String?
   perSaleProfit                             Float          @default(0)
   paidAmount                                Float          @default(0)
+  discount                                  Float          @default(0)
   remainingAmount                           Float          @default(0)
   paymentStatus                             PaymentStatus  @default(UNPAID)
   brandId                                   Int?
