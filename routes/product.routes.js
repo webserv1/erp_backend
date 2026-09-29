@@ -7,6 +7,7 @@ const upload = require("../middleware/upload");
 const router = express.Router();
 
 router.get("/", requireAuth, asyncHandler(product.getAll));
+router.get("/next-code", requireAuth, asyncHandler(product.getNextProductCode));
 router.get("/:id", requireAuth, asyncHandler(product.getById));
 router.post("/", requireAuth, authorizeRoles("ADMIN", "MANAGER"), upload, asyncHandler(product.create));
 router.put("/:id", requireAuth, authorizeRoles("ADMIN", "MANAGER"), upload, asyncHandler(product.update));

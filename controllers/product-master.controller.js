@@ -357,15 +357,13 @@ exports.getCategories = async (req, res) => {
 };
 
 exports.createCategory = async (req, res) => {
-  const { name, status, unit, quantity, purchaseAmount, saleAmount, brands = [], colors = [], sizes = [], brandIds = [], colorIds = [], sizeIds = [] } = req.body;
+  const { name, status, brands = [], colors = [], sizes = [], brandIds = [], colorIds = [], sizeIds = [] } = req.body;
 
   if (!name || !String(name).trim()) {
     throw new AppError(400, "Category name is required.");
   }
   const normalizedStatus = normalizeStatus(status);
   if (normalizedStatus === null) throw new AppError(400, "Status must be ACTIVE or INACTIVE.");
-
-  const normalizedUnit = unit && ["PIECES", "DOZEN"].includes(unit.toUpperCase()) ? unit.toUpperCase() : "PIECES";
 
   const normalizedBrands = Array.isArray(brands)
     ? brands.map((b) => (typeof b === "string" ? { name: b } : b))
@@ -403,10 +401,6 @@ exports.createCategory = async (req, res) => {
           type: "CATEGORY",
           name: trimmedName,
           status: normalizedStatus,
-          unit: normalizedUnit,
-          quantity: quantity ? parseInt(quantity, 10) : null,
-          purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-          saleAmount: saleAmount ? Number(saleAmount) : null,
         },
         select: PUBLIC_MASTER_FIELDS,
       });
@@ -455,15 +449,13 @@ exports.updateCategory = async (req, res) => {
   });
   if (!existing) throw new AppError(404, "Category not found.");
 
-  const { name, status, unit, quantity, purchaseAmount, saleAmount, brands = [], colors = [], sizes = [], brandIds = [], colorIds = [], sizeIds = [] } = req.body;
+  const { name, status, brands = [], colors = [], sizes = [], brandIds = [], colorIds = [], sizeIds = [] } = req.body;
 
   if (!name || !String(name).trim()) {
     throw new AppError(400, "Category name is required.");
   }
   const normalizedStatus = normalizeStatus(status);
   if (normalizedStatus === null) throw new AppError(400, "Status must be ACTIVE or INACTIVE.");
-
-  const normalizedUnit = unit && ["PIECES", "DOZEN"].includes(unit.toUpperCase()) ? unit.toUpperCase() : existing.unit || "PIECES";
 
   const trimmedName = name.trim();
   if (trimmedName !== existing.name) {
@@ -507,10 +499,6 @@ exports.updateCategory = async (req, res) => {
         data: {
           name: name.trim(),
           status: normalizedStatus,
-          unit: normalizedUnit,
-          quantity: quantity ? parseInt(quantity, 10) : null,
-          purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-          saleAmount: saleAmount ? Number(saleAmount) : null,
         },
       });
 
@@ -596,11 +584,7 @@ exports.updateCategory = async (req, res) => {
         ...existing,
         name: name.trim(),
         status: normalizedStatus,
-        unit: normalizedUnit,
-        quantity: quantity ? parseInt(quantity, 10) : null,
-        purchaseAmount: purchaseAmount ? Number(purchaseAmount) : null,
-        totalPurchaseAmount: calculateTotalPurchaseAmount(quantity, purchaseAmount, normalizedUnit),
-        saleAmount: saleAmount ? Number(saleAmount) : null,
+        totalPurchaseAmount: calculateTotalPurchaseAmount(existing.quantity, existing.purchaseAmount, existing.unit),
         brands: related.filter((m) => m.type === "BRAND"),
         colors: related.filter((m) => m.type === "COLOR"),
         sizes: related.filter((m) => m.type === "SIZE"),

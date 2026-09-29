@@ -136,6 +136,7 @@ model Product {
   quantity      Int?
   unit          SaleUnit      @default(PIECES)
   purchasePrice Decimal?      @db.Decimal(12, 2)
+  saleAmount    Decimal?      @db.Decimal(12, 2)
   brand         ProductMaster @relation("ProductBrand", fields: [brandId], references: [id])
   category      ProductMaster @relation("ProductCategory", fields: [categoryId], references: [id])
   color         ProductMaster @relation("ProductColor", fields: [colorId], references: [id])

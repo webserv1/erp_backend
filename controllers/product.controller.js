@@ -2,11 +2,13 @@ const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculateTotalPurchaseAmount } = require("../utils/productCalculations");
 const { deleteUploadAsset } = require("../utils/upload-asset-store");
+const PRODUCT_CODE_PREFIX = "sqr_";
+const PRODUCT_CODE_REGEX = /^sqr_\d{5,}$/;
 
 const PRODUCT_SELECT = {
   id: true, companyId: true, productCode: true, productName: true, categoryId: true,
   brandId: true, colorId: true, sizeId: true, brandIds: true, colorIds: true, sizeIds: true,
-  productImage: true, purchasePrice: true, quantity: true, unit: true, gst: true,
+  productImage: true, purchasePrice: true, saleAmount: true, quantity: true, unit: true, gst: true,
   status: true, createdAt: true, updatedAt: true,
   category: { select: { id: true, name: true } },
   brand: { select: { id: true, name: true } },
@@ -30,6 +32,22 @@ const toIds = (body, field) => {
 const selectedIds = (product, pluralField, singularField) => product[pluralField]?.length ? product[pluralField] : [product[singularField]];
 
 const hasValue = (body, field) => body[field] !== undefined && body[field] !== null && String(body[field]).trim() !== "";
+const normalizeProductCode = (productCode) => String(productCode || "").trim().toLowerCase();
+
+const getNextProductCode = async (companyId) => {
+  const products = await prisma.product.findMany({
+    where: { companyId, productCode: { startsWith: PRODUCT_CODE_PREFIX } },
+    select: { productCode: true },
+  });
+  const maxSeries = products.reduce((currentMax, product) => {
+    const normalized = normalizeProductCode(product.productCode);
+    if (!PRODUCT_CODE_REGEX.test(normalized)) return currentMax;
+    const series = Number.parseInt(normalized.slice(PRODUCT_CODE_PREFIX.length), 10);
+    if (!Number.isInteger(series)) return currentMax;
+    return Math.max(currentMax, series);
+  }, 0);
+  return `${PRODUCT_CODE_PREFIX}${String(maxSeries + 1).padStart(5, "0")}`;
+};
 
 const withSelectedMasters = async (products) => {
   if (!products.length) return products;
@@ -59,10 +77,12 @@ const withSelectedMasters = async (products) => {
 };
 
 const validateInput = (body) => {
-  const missing = ["productCode", "productName", "gst"].filter((field) => !body[field] || !String(body[field]).trim());
+  const missing = ["productCode", "productName"].filter((field) => !body[field] || !String(body[field]).trim());
   if (toIds(body, "categoryId").length !== 1) missing.push("categoryId");
   ["brandId", "colorId", "sizeId"].forEach((field) => { if (!toIds(body, field).length) missing.push(field); });
-  if (missing.length) throw new AppError(400, "Required fields are missing or invalid.", { fields: missing });
+  if (missing.length) {
+    throw new AppError(400, `Required fields are missing or invalid: ${missing.join(", ")}.`, { fields: missing });
+  }
   if (hasValue(body, "unit")) {
     const upperUnit = String(body.unit).toUpperCase();
     if (!["PIECES", "DOZEN"].includes(upperUnit)) throw new AppError(400, "Unit must be PIECES or DOZEN.");
@@ -75,6 +95,13 @@ const validateInput = (body) => {
     const price = Number(body.purchasePrice);
     if (Number.isNaN(price) || price < 0) throw new AppError(400, "Purchase price must be a non-negative number.");
   }
+  if (hasValue(body, "saleAmount")) {
+    const amount = Number(body.saleAmount);
+    if (Number.isNaN(amount) || amount < 0) throw new AppError(400, "Sale amount must be a non-negative number.");
+  }
+  if (!PRODUCT_CODE_REGEX.test(normalizeProductCode(body.productCode))) {
+    throw new AppError(400, "Product code format must be sqr_00001 (prefix 'sqr_' and at least 5 digits).");
+  }
 };
 
 const dataFrom = (body, files) => {
@@ -83,13 +110,14 @@ const dataFrom = (body, files) => {
   const colorIds = toIds(body, "colorId");
   const sizeIds = toIds(body, "sizeId");
   return {
-    productCode: String(body.productCode).trim(), productName: String(body.productName).trim(), categoryId,
+    productCode: normalizeProductCode(body.productCode), productName: String(body.productName).trim(), categoryId,
     brandId: brandIds[0], colorId: colorIds[0], sizeId: sizeIds[0], brandIds, colorIds, sizeIds,
     productImage: files?.productImage?.[0] ? `/uploads/products/${files.productImage[0].filename}` : undefined,
     purchasePrice: hasValue(body, "purchasePrice") ? Number(body.purchasePrice) : undefined,
+    saleAmount: hasValue(body, "saleAmount") ? Number(body.saleAmount) : undefined,
     quantity: hasValue(body, "quantity") ? Number.parseInt(body.quantity, 10) : undefined,
     unit: hasValue(body, "unit") ? String(body.unit).toUpperCase() : undefined,
-    gst: String(body.gst).trim(),
+    gst: body.gst === undefined || body.gst === null ? "" : String(body.gst).trim(),
   };
 };
 
@@ -120,8 +148,15 @@ exports.getAll = async (req, res) => {
     if (value) where[`${field}s`] = { hasSome: (Array.isArray(value) ? value : [value]).map(Number).filter(Number.isInteger) };
   }
   if (status !== undefined) where.status = status === "true" || status === true;
-  const products = await prisma.product.findMany({ where, select: PRODUCT_SELECT, orderBy: { createdAt: "desc" } });
-  return res.json({ products: await withSelectedMasters(products) });
+  const [products, nextProductCode] = await Promise.all([
+    prisma.product.findMany({ where, select: PRODUCT_SELECT, orderBy: { createdAt: "desc" } }),
+    getNextProductCode(req.auth.companyId),
+  ]);
+  return res.json({ products: await withSelectedMasters(products), nextProductCode });
+};
+
+exports.getNextProductCode = async (req, res) => {
+  return res.json({ nextProductCode: await getNextProductCode(req.auth.companyId) });
 };
 
 exports.getById = async (req, res) => {
@@ -138,7 +173,11 @@ exports.create = async (req, res) => {
   await validateMasters(req.auth.companyId, data);
   try {
     const product = await prisma.product.create({ data: { ...data, companyId: req.auth.companyId }, select: PRODUCT_SELECT });
-    return res.status(201).json({ message: "Product created successfully.", product: (await withSelectedMasters([product]))[0] });
+    return res.status(201).json({
+      message: "Product created successfully.",
+      product: (await withSelectedMasters([product]))[0],
+      nextProductCode: await getNextProductCode(req.auth.companyId),
+    });
   } catch (error) {
     if (error.code === "P2002") throw new AppError(409, "A product with this product code already exists in this company.");
     throw error;
