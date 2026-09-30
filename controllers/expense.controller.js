@@ -35,9 +35,13 @@ exports.getSummary = async (req, res) => {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-  const [thisMonthTotal, totalRecords, activeExpenses] = await Promise.all([
+  const [thisMonthTotal, overallTotal, totalRecords, activeExpenses] = await Promise.all([
     prisma.expense.aggregate({
       where: { companyId, expenseDate: { gte: monthStart, lte: monthEnd }, status: true },
+      _sum: { amount: true },
+    }),
+    prisma.expense.aggregate({
+      where: { companyId, status: true },
       _sum: { amount: true },
     }),
     prisma.expense.count({ where: { companyId } }),
@@ -47,6 +51,7 @@ exports.getSummary = async (req, res) => {
   return res.json({
     summary: {
       thisMonthTotal: Number(thisMonthTotal._sum.amount) || 0,
+      overallTotal: Number(overallTotal._sum.amount) || 0,
       totalRecords,
       activeExpenses,
     },
