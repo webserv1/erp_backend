@@ -14,9 +14,73 @@ const calculateLineTotalSalePrice = (quantity, unit, salePrice) => {
   return qty * multiplier * price;
 };
 
+const invoiceKeyFromSale = (sale) => sale.saleNumber || `SALE-${sale.id}`;
+
+const buildWorkerOverview = (sales) => {
+  const invoiceMap = new Map();
+
+  sales.forEach((line) => {
+    const invoiceKey = invoiceKeyFromSale(line);
+    if (!invoiceMap.has(invoiceKey)) {
+      invoiceMap.set(invoiceKey, {
+        invoiceNumber: invoiceKey,
+        createdAt: line.createdAt,
+        remainingAmount: Number(line.remainingAmount) || 0,
+        partyId: line.partyId,
+        partyName: line.partyName || line.party?.partyName || "Unknown Party",
+        shopName: line.party?.shopName || null,
+        mobile: line.party?.mobile || null,
+        products: new Set(),
+      });
+    }
+
+    const invoice = invoiceMap.get(invoiceKey);
+    invoice.products.add(line.productName || line.productCode || "Unknown Product");
+  });
+
+  const partyMap = new Map();
+  [...invoiceMap.values()]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .forEach((invoice) => {
+      const partyKey = String(invoice.partyId || 0);
+      if (!partyMap.has(partyKey)) {
+        partyMap.set(partyKey, {
+          partyId: invoice.partyId,
+          partyName: invoice.partyName,
+          shopName: invoice.shopName,
+          mobile: invoice.mobile,
+          pendingAmount: 0,
+          totalInvoiceCount: 0,
+          invoices: [],
+        });
+      }
+
+      const party = partyMap.get(partyKey);
+      party.totalInvoiceCount += 1;
+      if (invoice.remainingAmount > 0) {
+        party.pendingAmount += invoice.remainingAmount;
+      }
+      party.invoices.push({
+        invoiceNumber: invoice.invoiceNumber,
+        generatedAt: invoice.createdAt,
+        remainingAmount: invoice.remainingAmount,
+        products: [...invoice.products],
+      });
+    });
+
+  return [...partyMap.values()]
+    .filter((party) => party.pendingAmount > 0)
+    .map((party) => ({
+      ...party,
+      pendingAmount: Number(party.pendingAmount.toFixed(2)),
+    }))
+    .sort((a, b) => b.pendingAmount - a.pendingAmount);
+};
+
 exports.getDashboard = async (req, res) => {
   const companyId = req.auth.companyId;
   const isAdmin = req.auth.role === "ADMIN";
+  const isWorker = req.auth.role === "WORKER";
   const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 10;
   const { startOfDay, endOfDay } = getTodayRange();
   const now = new Date();
@@ -24,6 +88,36 @@ exports.getDashboard = async (req, res) => {
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   const overdueDate = new Date();
   overdueDate.setDate(overdueDate.getDate() - 30);
+
+  if (isWorker) {
+    const workerSales = await prisma.sale.findMany({
+      where: { companyId, status: true, partyId: { not: null } },
+      select: {
+        id: true,
+        saleNumber: true,
+        partyId: true,
+        partyName: true,
+        productName: true,
+        productCode: true,
+        remainingAmount: true,
+        createdAt: true,
+        party: {
+          select: {
+            partyName: true,
+            shopName: true,
+            mobile: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+
+    return res.json({
+      dashboard: {
+        workerOverview: buildWorkerOverview(workerSales),
+      },
+    });
+  }
 
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
