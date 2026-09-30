@@ -19,13 +19,16 @@ exports.getDashboard = async (req, res) => {
   const isAdmin = req.auth.role === "ADMIN";
   const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 10;
   const { startOfDay, endOfDay } = getTodayRange();
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
   const overdueDate = new Date();
   overdueDate.setDate(overdueDate.getDate() - 30);
 
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
 
-  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, lowStockItems, todaySalesProfit, totalSalesProfit, partyBalances, supplierPurchaseTotals, supplierRecords, overdueParties, lastPartySale] =
+  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, thisMonthExpenses, overallExpenses, lowStockItems, todaySalesProfit, totalSalesProfit, partyBalances, supplierPurchaseTotals, supplierRecords, overdueParties, lastPartySale] =
     await Promise.all([
       prisma.product.count({ where: { companyId } }),
       prisma.supplier.count({ where: { companyId } }),
@@ -40,6 +43,14 @@ exports.getDashboard = async (req, res) => {
         where: todaySaleWhere,
         _count: { id: true },
         _sum: { salePrice: true },
+      }),
+      prisma.expense.aggregate({
+        where: { companyId, status: true, expenseDate: { gte: monthStart, lte: monthEnd } },
+        _sum: { amount: true },
+      }),
+      prisma.expense.aggregate({
+        where: { companyId, status: true },
+        _sum: { amount: true },
       }),
       prisma.stock.findMany({
         where: { companyId, balanceStock: { lt: lowStockThreshold }, status: true },
@@ -104,6 +115,10 @@ exports.getDashboard = async (req, res) => {
         ...(isAdmin ? { salesProfit: Number(todaySalesProfit._sum.perSaleProfit) || 0 } : {}),
       },
       ...(isAdmin ? { totalSalesProfit: Number(totalSalesProfit._sum.perSaleProfit) || 0 } : {}),
+      expenses: {
+        thisMonthTotal: Number(thisMonthExpenses._sum.amount) || 0,
+        overallTotal: Number(overallExpenses._sum.amount) || 0,
+      },
       lowStockAlerts: lowStockItems.map((item) => ({
         id: item.id,
         productCode: item.productCode,
