@@ -246,6 +246,8 @@ const groupSales = (sales) => {
     return {
       ...group,
       invoiceNumber: group.saleNumber,
+      partyName: group.partyName || group.party?.partyName || null,
+      shopName: group.party?.shopName || null,
       productCode: group.items[0]?.productCode || group.productCode,
       productName: group.items[0]?.productName || group.productName,
       quantity: group.items[0]?.quantity || group.quantity,
@@ -418,7 +420,7 @@ const validateMasterSelections = async (companyId, lines) => {
 const validatePartyAndSuppliers = async (companyId, partyId, lines) => {
   const party = await prisma.party.findFirst({
     where: { id: Number.parseInt(partyId, 10), companyId },
-    select: { id: true },
+    select: { id: true, partyName: true },
   });
   if (!party) throw new AppError(404, "Party not found.");
 
@@ -438,6 +440,8 @@ const validatePartyAndSuppliers = async (companyId, partyId, lines) => {
   const supplierSet = new Set(suppliers.map((supplier) => supplier.id));
   const missing = supplierIds.filter((id) => !supplierSet.has(id));
   if (missing.length) throw new AppError(404, "Supplier not found.");
+
+  return party;
 };
 
 const validateAvailableQuantity = async (
@@ -505,7 +509,7 @@ const validateAvailableQuantity = async (
   }
 };
 
-const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice) => {
+const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice, partyName) => {
   const lineTotalSalePrice = calculateTotalSalePrice(line.quantity, line.unit, line.salePrice);
   const lineTotalPurchase = calculateTotalPurchaseAmount(
     line.quantity,
@@ -519,7 +523,7 @@ const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice) => {
   return {
     saleNumber,
     partyId: Number.parseInt(body.partyId, 10),
-    partyName: body.partyName ? String(body.partyName).trim() : null,
+    partyName: partyName || null,
     supplierId: line.supplierId,
     supplierName: line.supplierName,
     productName: line.productName,
@@ -806,16 +810,18 @@ exports.getInvoice = async (req, res) => {
 const saveSaleInvoice = async (req, existingSaleNumber, existingId) => {
   const rawItems = validateSaleInput(req.body);
   const lines = rawItems.map((item) => normalizeLine(item, req.body));
-  await Promise.all([
-    validateMasterSelections(req.auth.companyId, lines),
-    validatePartyAndSuppliers(req.auth.companyId, req.body.partyId, lines),
-    validateAvailableQuantity(
-      req.auth.companyId,
-      lines,
-      existingSaleNumber,
-      existingId,
-    ),
-  ]);
+  await validateMasterSelections(req.auth.companyId, lines);
+  const party = await validatePartyAndSuppliers(
+    req.auth.companyId,
+    req.body.partyId,
+    lines,
+  );
+  await validateAvailableQuantity(
+    req.auth.companyId,
+    lines,
+    existingSaleNumber,
+    existingId,
+  );
 
   const netTotalSalePrice = Number(
     lines
@@ -833,7 +839,13 @@ const saveSaleInvoice = async (req, existingSaleNumber, existingId) => {
     (await generateInvoiceNumber(req.auth.companyId));
 
   const lineWrites = lines.map((line) =>
-    buildLineWriteData(req.body, line, saleNumber, netTotalSalePrice),
+    buildLineWriteData(
+      req.body,
+      line,
+      saleNumber,
+      netTotalSalePrice,
+      party.partyName,
+    ),
   );
 
   if (!existingSaleNumber || existingSaleNumber !== saleNumber) {
