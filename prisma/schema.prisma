@@ -14,6 +14,8 @@ model Company {
   id        Int              @id @default(autoincrement())
   branding  CompanyBranding?
   expenses  Expense[]
+  profitWithdrawals ProfitWithdrawal[]
+  salaryEntries SalaryEntry[]
   parties   Party[]
   products  Product[]
   purchases Purchase[]
@@ -75,6 +77,8 @@ model User {
   resetToken       String?
   resetTokenExpiry DateTime?
   createdExpenses  Expense[]
+  profitWithdrawalsCreated ProfitWithdrawal[] @relation("ProfitWithdrawalCreatedBy")
+  salaryEntriesCreated SalaryEntry[] @relation("SalaryEntryCreatedBy")
   purchases        Purchase[]
   generatedReports Report[]
   company          Company    @relation(fields: [companyId], references: [id])
@@ -326,6 +330,39 @@ model Expense {
 
   @@index([companyId])
   @@index([companyId, category])
+}
+
+model ProfitWithdrawal {
+  id          Int      @id @default(autoincrement())
+  companyId   Int
+  sqAmount    Float    @default(0)
+  arsAmount   Float    @default(0)
+  entryDate   DateTime @db.Date
+  notes       String?
+  createdById Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("ProfitWithdrawalCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, entryDate])
+}
+
+model SalaryEntry {
+  id           Int      @id @default(autoincrement())
+  companyId    Int
+  sqAmount     Float    @default(0)
+  arsAmount    Float    @default(0)
+  workerAmount Float    @default(0)
+  entryDate    DateTime @db.Date
+  notes        String?
+  createdById  Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy    User?    @relation("SalaryEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, entryDate])
 }
 
 model Report {
