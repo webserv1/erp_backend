@@ -442,6 +442,7 @@ exports.deleteProfitWithdrawal = async (req, res) => {
 
 exports.getSalaryEntries = async (req, res) => {
   const companyId = req.auth.companyId;
+  await ensureSqarsGarmentsCompany(companyId);
 
   const [salaryEntries, totals] = await Promise.all([
     prisma.salaryEntry.findMany({
@@ -467,6 +468,7 @@ exports.getSalaryEntries = async (req, res) => {
 
 exports.createSalaryEntry = async (req, res) => {
   const companyId = req.auth.companyId;
+  await ensureSqarsGarmentsCompany(companyId);
   const { sqAmount, arsAmount, workerAmount, entryDate, notes } = req.body;
 
   const parsedEntryDate = parseExpenseDate(entryDate);
@@ -498,6 +500,7 @@ exports.createSalaryEntry = async (req, res) => {
 
 exports.updateSalaryEntry = async (req, res) => {
   const companyId = req.auth.companyId;
+  await ensureSqarsGarmentsCompany(companyId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) throw new AppError(400, "Invalid salary entry id.");
 
@@ -541,6 +544,7 @@ exports.updateSalaryEntry = async (req, res) => {
 
 exports.deleteSalaryEntry = async (req, res) => {
   const companyId = req.auth.companyId;
+  await ensureSqarsGarmentsCompany(companyId);
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) throw new AppError(400, "Invalid salary entry id.");
 
