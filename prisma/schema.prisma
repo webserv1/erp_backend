@@ -246,6 +246,7 @@ model Sale {
   salePrice                                 Float
   purchasePrice                             Float
   total                                     Float          @default(0)
+  saleDate                                  DateTime       @db.Date
   createdAt                                 DateTime       @default(now())
   updatedAt                                 DateTime       @updatedAt
   supplierId                                Int?
@@ -257,6 +258,7 @@ model Sale {
   perSaleProfit                             Float          @default(0)
   paidAmount                                Float          @default(0)
   discount                                  Float          @default(0)
+  transport                                 Float          @default(0)
   remainingAmount                           Float          @default(0)
   paymentStatus                             PaymentStatus  @default(UNPAID)
   brandId                                   Int?

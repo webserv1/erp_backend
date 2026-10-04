@@ -21,13 +21,15 @@ const calculateTotalPurchaseAmount = (quantity, unit, purchasePrice) => {
 const calculatePerSaleProfit = (netTotalPurchase, netTotalSale) =>
   toNumber(netTotalSale, "net total sale") - toNumber(netTotalPurchase, "net total purchase");
 
-const calculateRemainingAmount = (netTotalSale, paidAmount, discount = 0) => {
+const calculateRemainingAmount = (netTotalSale, paidAmount, discount = 0, transport = 0) => {
   const sale = toNumber(netTotalSale, "net total sale");
   const paid = Number(paidAmount) || 0;
   const discountValue = Number(discount) || 0;
+  const transportValue = Number(transport) || 0;
   if (Number.isNaN(paid) || paid < 0) throw new Error("Invalid paid amount.");
   if (Number.isNaN(discountValue) || discountValue < 0) throw new Error("Invalid discount.");
-  return sale - discountValue - paid;
+  if (Number.isNaN(transportValue) || transportValue < 0) throw new Error("Invalid transport.");
+  return sale + transportValue - discountValue - paid;
 };
 
 module.exports = {

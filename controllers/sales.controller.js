@@ -23,6 +23,11 @@ const formatQuantityBreakdown = (pieces) => {
   return `${safePieces} PIECES (${dozens} DOZENS + ${remainder} PIECES)`;
 };
 const invoiceNumberFrom = (sequence) => `INV_${sequence}`;
+const parseSaleDate = (value) => {
+  if (!value || !String(value).trim()) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 const generateInvoiceNumber = async (companyId) => {
   const latestInvoice = await prisma.sale.findFirst({
     where: { companyId, OR: [{ saleNumber: { startsWith: "INV_" } }, { saleNumber: { startsWith: "INV-" } }] },
@@ -62,10 +67,12 @@ const SALE_SELECT = {
   sizeId: true,
   quantity: true,
   unit: true,
+  saleDate: true,
   salePrice: true,
   purchasePrice: true,
   paidAmount: true,
   discount: true,
+  transport: true,
   remainingAmount: true,
   paymentStatus: true,
   perSaleProfit: true,
@@ -236,8 +243,9 @@ const groupSales = (sales) => {
     const netTotalPurchaseAmount = Number(group.netTotalPurchaseAmount.toFixed(2));
     const paidAmount = Number(group.paidAmount) || 0;
     const discount = Number(group.discount) || 0;
+    const transport = Number(group.transport) || 0;
     const remainingAmount = Number(
-      calculateRemainingAmount(netTotalSalePrice, paidAmount, discount).toFixed(2),
+      calculateRemainingAmount(netTotalSalePrice, paidAmount, discount, transport).toFixed(2),
     );
     const perSaleProfit = Number(
       calculatePerSaleProfit(netTotalPurchaseAmount, netTotalSalePrice).toFixed(2),
@@ -260,6 +268,7 @@ const groupSales = (sales) => {
       netTotalPurchaseAmount,
       discount,
       netTotalpurchaseamount: netTotalPurchaseAmount,
+      transport,
       remainingAmount,
       perSaleProfit,
       persaleprofit: perSaleProfit,
@@ -324,6 +333,7 @@ const normalizeLine = (item, body) => {
 
 const validateSaleInput = (body) => {
   if (isMissing(body.partyId)) throw new AppError(400, "partyId is required.");
+  if (isMissing(body.saleDate)) throw new AppError(400, "saleDate is required.");
 
   const items = getItems(body);
   if (!items.length) throw new AppError(400, "Add at least one product line.");
@@ -381,6 +391,15 @@ const validateSaleInput = (body) => {
     (Number.isNaN(Number(body.discount)) || Number(body.discount) < 0)
   ) {
     throw new AppError(400, "discount must be a non-negative number.");
+  }
+  if (
+    body.transport !== undefined &&
+    (Number.isNaN(Number(body.transport)) || Number(body.transport) < 0)
+  ) {
+    throw new AppError(400, "transport must be a non-negative number.");
+  }
+  if (!parseSaleDate(body.saleDate)) {
+    throw new AppError(400, "saleDate must be a valid date.");
   }
 
   return items;
@@ -519,6 +538,8 @@ const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice, partyName
   const lineProfit = calculatePerSaleProfit(lineTotalPurchase, lineTotalSalePrice);
 
   const discount = body.discount === undefined ? 0 : Number(body.discount);
+  const transport = body.transport === undefined ? 0 : Number(body.transport);
+  const saleDate = parseSaleDate(body.saleDate) || new Date();
 
   return {
     saleNumber,
@@ -535,13 +556,16 @@ const buildLineWriteData = (body, line, saleNumber, netTotalSalePrice, partyName
     unit: line.unit,
     salePrice: line.salePrice,
     purchasePrice: line.purchasePrice,
+    saleDate,
     total: 0,
     paidAmount: body.paidAmount === undefined ? 0 : Number(body.paidAmount),
     discount,
+    transport,
     remainingAmount: calculateRemainingAmount(
       netTotalSalePrice,
       body.paidAmount === undefined ? 0 : Number(body.paidAmount),
       discount,
+      transport,
     ),
     paymentStatus: body.paymentStatus
       ? String(body.paymentStatus).toUpperCase()
@@ -717,15 +741,15 @@ exports.getAll = async (req, res) => {
   if (supplierId) where.supplierId = Number.parseInt(supplierId, 10);
   if (partyId) where.partyId = Number.parseInt(partyId, 10);
   if (startDate || endDate) {
-    where.createdAt = {};
-    if (startDate) where.createdAt.gte = new Date(startDate);
-    if (endDate) where.createdAt.lte = new Date(endDate);
+    where.saleDate = {};
+    if (startDate) where.saleDate.gte = new Date(startDate);
+    if (endDate) where.saleDate.lte = new Date(endDate);
   }
 
   const sales = await prisma.sale.findMany({
     where,
     select: SALE_SELECT,
-    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+    orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }, { id: "asc" }],
   });
   return res.json({ sales: groupSales(sales) });
 };
@@ -778,7 +802,7 @@ exports.getInvoice = async (req, res) => {
   return res.json({
     invoice: {
       invoiceNumber: invoiceGroup?.saleNumber || `SALE-${String(id).padStart(6, "0")}`,
-      issueDate: invoiceLine.createdAt,
+      issueDate: invoiceLine.saleDate || invoiceLine.createdAt,
       company: {
         id: invoiceLine.company.id,
         name: invoiceLine.company.name,
@@ -834,9 +858,11 @@ const saveSaleInvoice = async (req, existingSaleNumber, existingId) => {
       .toFixed(2),
   );
 
-  const saleNumber =
-    existingSaleNumber ||
-    (await generateInvoiceNumber(req.auth.companyId));
+  const manualSaleNumber = req.body.saleNumber ? String(req.body.saleNumber).trim() : "";
+  const saleNumber = manualSaleNumber || existingSaleNumber || (await generateInvoiceNumber(req.auth.companyId));
+  if (!saleNumber) {
+    throw new AppError(400, "Sale number could not be generated.");
+  }
 
   const lineWrites = lines.map((line) =>
     buildLineWriteData(
