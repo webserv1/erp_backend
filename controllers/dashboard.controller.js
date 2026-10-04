@@ -81,7 +81,7 @@ exports.getDashboard = async (req, res) => {
   const companyId = req.auth.companyId;
   const isAdmin = req.auth.role === "ADMIN";
   const isWorker = req.auth.role === "WORKER";
-  const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 10;
+  const lowStockThreshold = parseInt(req.query.lowStockThreshold, 10) || 18;
   const { startOfDay, endOfDay } = getTodayRange();
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -147,9 +147,9 @@ exports.getDashboard = async (req, res) => {
         _sum: { amount: true },
       }),
       prisma.stock.findMany({
-        where: { companyId, balanceStock: { lt: lowStockThreshold }, status: true },
+        where: { companyId, balanceStock: { gte: lowStockThreshold }, status: true },
         select: { id: true, productCode: true, productName: true, balanceStock: true, salePrice: true },
-        orderBy: { balanceStock: "asc" },
+        orderBy: { balanceStock: "desc" },
       }),
       isAdmin ? prisma.sale.aggregate({
         where: todaySaleWhere,

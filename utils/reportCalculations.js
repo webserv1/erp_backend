@@ -86,7 +86,7 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
       ORDER BY total DESC
       LIMIT 5
     `,
-    prisma.stock.findMany({ where: { companyId, balanceStock: { lt: 10 }, status: true }, select: { id: true, productCode: true, productName: true, balanceStock: true }, orderBy: { balanceStock: "asc" }, take: 10 }),
+    prisma.stock.findMany({ where: { companyId, balanceStock: { gte: 18 }, status: true }, select: { id: true, productCode: true, productName: true, balanceStock: true }, orderBy: { balanceStock: "desc" }, take: 10 }),
     buildSalesTrend(companyId, periodStart, periodEnd),
     prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
     prisma.purchase.groupBy({ by: ["supplierId"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { totalPurchaseAmount: true } }),
