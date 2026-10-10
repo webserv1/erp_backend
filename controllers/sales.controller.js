@@ -6,6 +6,7 @@ const {
   calculateTotalPurchaseAmount,
   calculateTotalSalePrice,
 } = require("../utils/salesCalculations");
+const { getInvoiceReturnAmountMap } = require("../utils/partyReturnCalculations");
 
 const PAYMENT_STATUSES = ["UNPAID", "PARTIAL", "PAID", "OVERDUE"];
 const VALID_UNITS = ["PIECES", "DOZEN"];
@@ -272,6 +273,26 @@ const groupSales = (sales) => {
       remainingAmount,
       perSaleProfit,
       persaleprofit: perSaleProfit,
+    };
+  });
+};
+
+const applyReturnProfitAdjustments = async (companyId, groupedSales) => {
+  if (!groupedSales.length) return groupedSales;
+
+  const saleNumbers = groupedSales
+    .map((group) => group.saleNumber)
+    .filter((saleNumber) => !!saleNumber && !String(saleNumber).startsWith("SALE-"));
+  const returnMap = await getInvoiceReturnAmountMap(companyId, saleNumbers);
+
+  return groupedSales.map((group) => {
+    const returnAmount = returnMap.get(group.saleNumber) || 0;
+    const adjustedProfit = Number((Number(group.perSaleProfit || 0) - returnAmount).toFixed(2));
+    return {
+      ...group,
+      returnAmount: Number(returnAmount.toFixed(2)),
+      perSaleProfit: adjustedProfit,
+      persaleprofit: adjustedProfit,
     };
   });
 };
@@ -594,7 +615,8 @@ const loadInvoice = async (companyId, saleNumber) => {
     select: SALE_SELECT,
     orderBy: { id: "asc" },
   });
-  return groupSales(lines)[0] || null;
+  const grouped = await applyReturnProfitAdjustments(companyId, groupSales(lines));
+  return grouped[0] || null;
 };
 
 exports.getProductDetails = async (req, res) => {
@@ -751,7 +773,7 @@ exports.getAll = async (req, res) => {
     select: SALE_SELECT,
     orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }, { id: "asc" }],
   });
-  return res.json({ sales: groupSales(sales) });
+  return res.json({ sales: await applyReturnProfitAdjustments(req.auth.companyId, groupSales(sales)) });
 };
 
 exports.getById = async (req, res) => {
@@ -772,7 +794,7 @@ exports.getById = async (req, res) => {
     where: { id, companyId: req.auth.companyId },
     select: SALE_SELECT,
   });
-  return res.json({ sale: groupSales([line])[0] });
+  return res.json({ sale: (await applyReturnProfitAdjustments(req.auth.companyId, groupSales([line])))[0] });
 };
 
 exports.getInvoice = async (req, res) => {
@@ -787,12 +809,14 @@ exports.getInvoice = async (req, res) => {
 
   const invoiceGroup = sale.saleNumber
     ? await loadInvoice(req.auth.companyId, sale.saleNumber)
-    : groupSales([
-        await prisma.sale.findFirst({
-          where: { id, companyId: req.auth.companyId },
-          select: SALE_SELECT,
-        }),
-      ])[0];
+    : (
+        await applyReturnProfitAdjustments(req.auth.companyId, groupSales([
+          await prisma.sale.findFirst({
+            where: { id, companyId: req.auth.companyId },
+            select: SALE_SELECT,
+          }),
+        ]))
+      )[0];
 
   const invoiceLine = await prisma.sale.findFirst({
     where: { id, companyId: req.auth.companyId },

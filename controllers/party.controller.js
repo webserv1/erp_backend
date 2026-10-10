@@ -1,6 +1,7 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculatePartySalesTotals } = require("../utils/partyCalculations");
+const { getPartyReturnAmountMap } = require("../utils/partyReturnCalculations");
 
 const normalizeStatus = (status) => {
   if (typeof status === "boolean") return status;
@@ -129,14 +130,17 @@ exports.getAll = async (req, res) => {
   if (req.auth.role !== "ADMIN") return res.json({ parties: partiesWithTotals });
 
   const partyIds = parties.map((p) => p.id);
-  const profits = await prisma.sale.groupBy({
-    by: ["partyId"],
-    where: {
-      companyId: req.auth.companyId,
-      partyId: { in: partyIds },
-    },
-    _sum: { perSaleProfit: true },
-  });
+  const [profits, returnAmountMap] = await Promise.all([
+    prisma.sale.groupBy({
+      by: ["partyId"],
+      where: {
+        companyId: req.auth.companyId,
+        partyId: { in: partyIds },
+      },
+      _sum: { perSaleProfit: true },
+    }),
+    getPartyReturnAmountMap(req.auth.companyId, partyIds),
+  ]);
 
   const profitMap = {};
   for (const row of profits) {
@@ -145,7 +149,7 @@ exports.getAll = async (req, res) => {
 
   const partiesWithProfit = partiesWithTotals.map((party) => ({
     ...party,
-    sales_profit: profitMap[party.id] || 0,
+    sales_profit: (profitMap[party.id] || 0) - (returnAmountMap.get(party.id) || 0),
   }));
 
   return res.json({ parties: partiesWithProfit });
@@ -165,15 +169,19 @@ exports.getById = async (req, res) => {
 
   if (req.auth.role !== "ADMIN") return res.json({ party: partyWithTotals });
 
-  const profit = await prisma.sale.aggregate({
-    where: {
-      companyId: req.auth.companyId,
-      partyId: id,
-    },
-    _sum: { perSaleProfit: true },
-  });
+  const [profit, returnAmountMap] = await Promise.all([
+    prisma.sale.aggregate({
+      where: {
+        companyId: req.auth.companyId,
+        partyId: id,
+      },
+      _sum: { perSaleProfit: true },
+    }),
+    getPartyReturnAmountMap(req.auth.companyId, [id]),
+  ]);
 
-  partyWithTotals.sales_profit = Number(profit._sum.perSaleProfit) || 0;
+  partyWithTotals.sales_profit =
+    (Number(profit._sum.perSaleProfit) || 0) - (returnAmountMap.get(id) || 0);
 
   return res.json({ party: partyWithTotals });
 };

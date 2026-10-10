@@ -1,4 +1,5 @@
 const prisma = require("../lib/prisma");
+const { getReturnAmountSum } = require("../utils/partyReturnCalculations");
 
 const getTodayRange = () => {
   const now = new Date();
@@ -122,7 +123,7 @@ exports.getDashboard = async (req, res) => {
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
 
-  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, thisMonthExpenses, overallExpenses, lowStockItems, todaySalesProfit, totalSalesProfit, partyBalances, supplierPurchaseTotals, supplierRecords, overdueParties, lastPartySale] =
+  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, thisMonthExpenses, overallExpenses, lowStockItems, todaySalesProfit, totalSalesProfit, todayReturnProfit, overallReturnProfit, partyBalances, supplierPurchaseTotals, supplierRecords, overdueParties, lastPartySale] =
     await Promise.all([
       prisma.product.count({ where: { companyId } }),
       prisma.supplier.count({ where: { companyId } }),
@@ -159,6 +160,8 @@ exports.getDashboard = async (req, res) => {
         where: { companyId },
         _sum: { perSaleProfit: true },
       }) : Promise.resolve(null),
+      isAdmin ? getReturnAmountSum(companyId, { returnDate: { gte: startOfDay, lte: endOfDay } }) : Promise.resolve(0),
+      isAdmin ? getReturnAmountSum(companyId) : Promise.resolve(0),
       prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
       prisma.purchase.groupBy({ by: ["supplierId"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { totalPurchaseAmount: true } }),
       prisma.supplier.findMany({ where: { companyId }, select: { id: true, name: true, paidAmount: true } }),
@@ -206,9 +209,15 @@ exports.getDashboard = async (req, res) => {
         purchaseTotal: Number(todayPurchases._sum.totalPurchaseAmount) || 0,
         saleCount: todaySales._count.id,
         saleTotal: Number(todaySales._sum.salePrice) || 0,
-        ...(isAdmin ? { salesProfit: Number(todaySalesProfit._sum.perSaleProfit) || 0 } : {}),
+        ...(isAdmin ? { salesProfit: (Number(todaySalesProfit._sum.perSaleProfit) || 0) - (Number(todayReturnProfit) || 0) } : {}),
       },
-      ...(isAdmin ? { totalSalesProfit: Number(totalSalesProfit._sum.perSaleProfit) || 0 } : {}),
+      ...(isAdmin
+        ? {
+            totalSalesProfit:
+              (Number(totalSalesProfit._sum.perSaleProfit) || 0) -
+              (Number(overallReturnProfit) || 0),
+          }
+        : {}),
       expenses: {
         thisMonthTotal: Number(thisMonthExpenses._sum.amount) || 0,
         overallTotal: Number(overallExpenses._sum.amount) || 0,

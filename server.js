@@ -17,6 +17,7 @@ const stockRoutes = require("./routes/stock.routes");
 const companyRoutes = require("./routes/company.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const expenseRoutes = require("./routes/expense.routes");
+const partyReturnRoutes = require("./routes/party-return.routes");
 const reportRoutes = require("./routes/report.routes");
 const companyProfileRoutes = require("./routes/company-profile.routes");
 const AppError = require("./utils/app-error");
@@ -94,6 +95,7 @@ app.use("/api/stock", stockRoutes);
 app.use("/api/company", companyRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/party-returns", partyReturnRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/company/profile", companyProfileRoutes);
 

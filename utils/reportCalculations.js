@@ -1,4 +1,5 @@
 const prisma = require("../lib/prisma");
+const { getReturnAmountSum } = require("./partyReturnCalculations");
 
 const getWeekRange = () => {
   const now = new Date();
@@ -45,7 +46,7 @@ const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
 
 const buildReportData = async (companyId, periodStart, periodEnd) => {
   const periodWhere = { companyId, createdAt: { gte: periodStart, lte: periodEnd } };
-  const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, partyBalances, supplierPurchaseTotals, supplierRecords] = await Promise.all([
+  const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, partyBalances, supplierPurchaseTotals, supplierRecords, returnedProfit] = await Promise.all([
     prisma.$queryRaw`
       SELECT
         COUNT(*)::int AS count,
@@ -91,6 +92,7 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
     prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
     prisma.purchase.groupBy({ by: ["supplierId"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { totalPurchaseAmount: true } }),
     prisma.supplier.findMany({ where: { companyId }, select: { id: true, name: true, paidAmount: true } }),
+    getReturnAmountSum(companyId, { returnDate: { gte: periodStart, lte: periodEnd } }),
   ]);
   const parties = partyBalances.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", balance: Number(party._sum.remainingAmount) || 0 }));
   const supplierById = new Map(supplierRecords.map((supplier) => [supplier.id, supplier]));
@@ -107,11 +109,12 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
   const totalSales = Number(salesSummary?.total) || 0;
   const totalPurchases = Number(purchasesAgg._sum.totalPurchaseAmount) || 0;
   const totalExpenses = Number(expensesAgg._sum.amount) || 0;
+  const adjustedSalesProfit = (Number(salesSummary?.profit) || 0) - (Number(returnedProfit) || 0);
   return {
-    sales: { count: Number(salesSummary?.count) || 0, total: totalSales, profit: Number(salesSummary?.profit) || 0 },
+    sales: { count: Number(salesSummary?.count) || 0, total: totalSales, profit: adjustedSalesProfit },
     purchases: { count: purchasesAgg._count.id, total: totalPurchases },
     expenses: { count: expensesAgg._count.id, total: totalExpenses },
-    netProfit: totalSales - totalPurchases - totalExpenses,
+    netProfit: totalSales - totalPurchases - totalExpenses - (Number(returnedProfit) || 0),
     balances: { partyOutstanding: parties.reduce((sum, party) => sum + party.balance, 0), supplierPayable: suppliers.reduce((sum, supplier) => sum + supplier.balance, 0), parties, suppliers },
     salesTrend,
     topProducts: topProducts.map((product) => ({ productCode: product.productCode, productName: product.productName, quantity: Number(product.quantity) || 0, total: Number(product.total) || 0 })),
