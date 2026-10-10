@@ -2,6 +2,9 @@ const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculateTotalSalePrice } = require("../utils/salesCalculations");
 
+const VALID_UNITS = ["PIECES", "DOZEN"];
+const VALID_PAYMENT_STATUS = ["UNPAID", "PARTIAL", "PAID", "OVERDUE"];
+
 const PUBLIC_PARTY_RETURN_FIELDS = {
   id: true,
   companyId: true,
@@ -9,14 +12,30 @@ const PUBLIC_PARTY_RETURN_FIELDS = {
   partyId: true,
   partyName: true,
   shopName: true,
-  productDetails: true,
-  amountDetails: true,
+  netTotalSalePrice: true,
+  invoicePaidAmount: true,
+  discount: true,
+  transport: true,
+  invoiceRemainingAmount: true,
+  paymentStatus: true,
   reason: true,
   amountPaid: true,
   returnDate: true,
   createdById: true,
   createdAt: true,
   updatedAt: true,
+  items: {
+    select: {
+      id: true,
+      productCode: true,
+      productName: true,
+      quantity: true,
+      unit: true,
+      salePrice: true,
+      totalSalePrice: true,
+    },
+    orderBy: { id: "asc" },
+  },
 };
 
 const parseDate = (value) => {
@@ -33,17 +52,46 @@ const toNonNegativeNumber = (value, field) => {
   return parsed;
 };
 
-const normalizeJson = (value) => {
-  if (value === undefined) return undefined;
-  if (value === null || value === "") return null;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return value;
-    }
+const normalizeInvoiceItems = (items) => {
+  if (!Array.isArray(items) || !items.length) {
+    throw new AppError(400, "At least one product detail row is required.");
   }
-  return value;
+
+  return items.map((item, index) => {
+    const productCode = String(item.productCode || "").trim();
+    const productName = String(item.productName || "").trim();
+    const quantity = Number(item.quantity);
+    const unit = String(item.unit || "PIECES").toUpperCase();
+    const salePrice = Number(item.salePrice);
+    const totalSalePrice =
+      item.totalSalePrice !== undefined
+        ? Number(item.totalSalePrice)
+        : calculateTotalSalePrice(quantity, unit, salePrice);
+
+    if (!productCode) throw new AppError(400, `items[${index}].productCode is required.`);
+    if (!productName) throw new AppError(400, `items[${index}].productName is required.`);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new AppError(400, `items[${index}].quantity must be a positive integer.`);
+    }
+    if (!VALID_UNITS.includes(unit)) {
+      throw new AppError(400, `items[${index}].unit must be PIECES or DOZEN.`);
+    }
+    if (Number.isNaN(salePrice) || salePrice < 0) {
+      throw new AppError(400, `items[${index}].salePrice must be a non-negative number.`);
+    }
+    if (Number.isNaN(totalSalePrice) || totalSalePrice < 0) {
+      throw new AppError(400, `items[${index}].totalSalePrice must be a non-negative number.`);
+    }
+
+    return {
+      productCode,
+      productName,
+      quantity,
+      unit,
+      salePrice,
+      totalSalePrice,
+    };
+  });
 };
 
 const serializeInvoice = (lines) => {
@@ -66,10 +114,10 @@ const serializeInvoice = (lines) => {
     netTotalSalePrice: Number(
       items.reduce((sum, item) => sum + (Number(item.totalSalePrice) || 0), 0).toFixed(2),
     ),
-    paidAmount: Number(first.paidAmount) || 0,
+    invoicePaidAmount: Number(first.paidAmount) || 0,
     discount: Number(first.discount) || 0,
     transport: Number(first.transport) || 0,
-    remainingAmount: Number(first.remainingAmount) || 0,
+    invoiceRemainingAmount: Number(first.remainingAmount) || 0,
     paymentStatus: first.paymentStatus || "UNPAID",
   };
 
@@ -79,8 +127,8 @@ const serializeInvoice = (lines) => {
     partyName: first.partyName || first.party?.partyName || "",
     shopName: first.party?.shopName || "",
     saleDate: first.saleDate,
-    productDetails: items,
-    amountDetails,
+    items,
+    ...amountDetails,
   };
 };
 
@@ -94,6 +142,14 @@ const ensureInvoiceBelongsToCompany = async (companyId, saleNumber) => {
     throw new AppError(404, "Selected invoice number does not exist.");
   }
   return line;
+};
+
+const validatePaymentStatus = (value) => {
+  const normalized = String(value || "UNPAID").toUpperCase();
+  if (!VALID_PAYMENT_STATUS.includes(normalized)) {
+    throw new AppError(400, "paymentStatus must be UNPAID, PARTIAL, PAID, or OVERDUE.");
+  }
+  return normalized;
 };
 
 exports.getInvoiceOptions = async (req, res) => {
@@ -163,6 +219,7 @@ exports.getAll = async (req, res) => {
       { partyName: { contains: search, mode: "insensitive" } },
       { shopName: { contains: search, mode: "insensitive" } },
       { reason: { contains: search, mode: "insensitive" } },
+      { saleNumber: { contains: search, mode: "insensitive" } },
     ];
   }
   if (invoiceNumber) where.saleNumber = String(invoiceNumber).trim();
@@ -198,8 +255,13 @@ exports.create = async (req, res) => {
     partyId,
     partyName,
     shopName,
-    productDetails,
-    amountDetails,
+    items,
+    netTotalSalePrice,
+    invoicePaidAmount,
+    discount,
+    transport,
+    invoiceRemainingAmount,
+    paymentStatus,
     reason,
     amountPaid,
     returnDate,
@@ -210,11 +272,11 @@ exports.create = async (req, res) => {
   if (!reason || !String(reason).trim()) throw new AppError(400, "Reason for return is required.");
   if (!partyName || !String(partyName).trim()) throw new AppError(400, "Party name is required.");
   if (!shopName || !String(shopName).trim()) throw new AppError(400, "Shop name is required.");
-  const paid = toNonNegativeNumber(amountPaid, "Amount paid");
 
   const normalizedInvoiceNumber = invoiceNumber ? String(invoiceNumber).trim() : null;
   await ensureInvoiceBelongsToCompany(req.auth.companyId, normalizedInvoiceNumber);
 
+  const normalizedItems = normalizeInvoiceItems(items);
   const record = await prisma.partyReturn.create({
     data: {
       companyId: req.auth.companyId,
@@ -222,12 +284,19 @@ exports.create = async (req, res) => {
       partyId: Number.isInteger(Number(partyId)) ? Number(partyId) : null,
       partyName: String(partyName).trim(),
       shopName: String(shopName).trim(),
-      productDetails: normalizeJson(productDetails),
-      amountDetails: normalizeJson(amountDetails),
+      netTotalSalePrice: toNonNegativeNumber(netTotalSalePrice, "Net total sale price"),
+      invoicePaidAmount: toNonNegativeNumber(invoicePaidAmount, "Invoice paid amount"),
+      discount: toNonNegativeNumber(discount, "Discount"),
+      transport: toNonNegativeNumber(transport, "Transport"),
+      invoiceRemainingAmount: toNonNegativeNumber(invoiceRemainingAmount, "Invoice remaining amount"),
+      paymentStatus: validatePaymentStatus(paymentStatus),
       reason: String(reason).trim(),
-      amountPaid: paid,
+      amountPaid: toNonNegativeNumber(amountPaid, "Amount paid"),
       returnDate: parsedReturnDate,
       createdById: req.auth.sub,
+      items: {
+        create: normalizedItems,
+      },
     },
     select: PUBLIC_PARTY_RETURN_FIELDS,
   });
@@ -262,23 +331,61 @@ exports.update = async (req, res) => {
     if (!String(req.body.shopName).trim()) throw new AppError(400, "Shop name cannot be empty.");
     data.shopName = String(req.body.shopName).trim();
   }
-  if (req.body.productDetails !== undefined) data.productDetails = normalizeJson(req.body.productDetails);
-  if (req.body.amountDetails !== undefined) data.amountDetails = normalizeJson(req.body.amountDetails);
+  if (req.body.netTotalSalePrice !== undefined) {
+    data.netTotalSalePrice = toNonNegativeNumber(req.body.netTotalSalePrice, "Net total sale price");
+  }
+  if (req.body.invoicePaidAmount !== undefined) {
+    data.invoicePaidAmount = toNonNegativeNumber(req.body.invoicePaidAmount, "Invoice paid amount");
+  }
+  if (req.body.discount !== undefined) {
+    data.discount = toNonNegativeNumber(req.body.discount, "Discount");
+  }
+  if (req.body.transport !== undefined) {
+    data.transport = toNonNegativeNumber(req.body.transport, "Transport");
+  }
+  if (req.body.invoiceRemainingAmount !== undefined) {
+    data.invoiceRemainingAmount = toNonNegativeNumber(
+      req.body.invoiceRemainingAmount,
+      "Invoice remaining amount",
+    );
+  }
+  if (req.body.paymentStatus !== undefined) {
+    data.paymentStatus = validatePaymentStatus(req.body.paymentStatus);
+  }
   if (req.body.reason !== undefined) {
     if (!String(req.body.reason).trim()) throw new AppError(400, "Reason cannot be empty.");
     data.reason = String(req.body.reason).trim();
   }
-  if (req.body.amountPaid !== undefined) data.amountPaid = toNonNegativeNumber(req.body.amountPaid, "Amount paid");
+  if (req.body.amountPaid !== undefined) {
+    data.amountPaid = toNonNegativeNumber(req.body.amountPaid, "Amount paid");
+  }
   if (req.body.returnDate !== undefined) {
     const parsedReturnDate = parseDate(req.body.returnDate);
     if (!parsedReturnDate) throw new AppError(400, "Enter a valid return date.");
     data.returnDate = parsedReturnDate;
   }
 
-  const partyReturn = await prisma.partyReturn.update({
-    where: { id },
-    data,
-    select: PUBLIC_PARTY_RETURN_FIELDS,
+  const normalizedItems = req.body.items !== undefined ? normalizeInvoiceItems(req.body.items) : null;
+
+  const partyReturn = await prisma.$transaction(async (tx) => {
+    if (normalizedItems) {
+      await tx.partyReturnItem.deleteMany({ where: { partyReturnId: id } });
+    }
+
+    return tx.partyReturn.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(normalizedItems
+          ? {
+              items: {
+                create: normalizedItems,
+              },
+            }
+          : {}),
+      },
+      select: PUBLIC_PARTY_RETURN_FIELDS,
+    });
   });
 
   return res.json({ message: "Party return updated successfully.", partyReturn });

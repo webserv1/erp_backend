@@ -294,8 +294,12 @@ model PartyReturn {
   partyId        Int?
   partyName      String
   shopName       String
-  productDetails Json?
-  amountDetails  Json?
+  netTotalSalePrice Float @default(0)
+  invoicePaidAmount Float @default(0)
+  discount      Float @default(0)
+  transport     Float @default(0)
+  invoiceRemainingAmount Float @default(0)
+  paymentStatus PaymentStatus @default(UNPAID)
   reason         String
   amountPaid     Float
   returnDate     DateTime @db.Date
@@ -305,10 +309,27 @@ model PartyReturn {
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   party          Party?   @relation(fields: [partyId], references: [id], onDelete: SetNull)
   createdBy      User?    @relation("PartyReturnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items          PartyReturnItem[]
 
   @@index([companyId, saleNumber])
   @@index([companyId, partyId])
   @@index([companyId, returnDate])
+}
+
+model PartyReturnItem {
+  id            Int         @id @default(autoincrement())
+  partyReturnId Int
+  productCode   String
+  productName   String
+  quantity      Int
+  unit          SaleUnit    @default(PIECES)
+  salePrice     Float       @default(0)
+  totalSalePrice Float      @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  partyReturn   PartyReturn @relation(fields: [partyReturnId], references: [id], onDelete: Cascade)
+
+  @@index([partyReturnId])
 }
 
 model SaleBrand {
