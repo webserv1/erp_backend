@@ -35,15 +35,27 @@ const withSalesTotals = async (parties, companyId) => {
   const partyIds = parties.map((party) => party.id);
   const sales = await prisma.sale.findMany({
     where: { companyId, status: true, partyId: { in: partyIds } },
-    select: { partyId: true, quantity: true, unit: true, salePrice: true, remainingAmount: true },
+    select: {
+      id: true,
+      saleNumber: true,
+      partyId: true,
+      quantity: true,
+      unit: true,
+      salePrice: true,
+      remainingAmount: true,
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
-  const { totalPurchaseMap, remainingBalanceMap } = calculatePartySalesTotals(sales);
+  const { totalPurchaseMap, remainingBalanceMap, invoiceCountMap, invoiceNumbersMap } =
+    calculatePartySalesTotals(sales);
 
   return parties.map((party) => ({
     ...party,
     totalPurchase: Number((totalPurchaseMap.get(party.id) || 0).toFixed(2)),
     remainingBalance: Number((remainingBalanceMap.get(party.id) || 0).toFixed(2)),
+    invoiceCount: invoiceCountMap.get(party.id) || 0,
+    invoiceNumbers: invoiceNumbersMap.get(party.id) || [],
   }));
 };
 
