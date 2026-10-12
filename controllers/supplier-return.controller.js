@@ -218,23 +218,32 @@ exports.getPurchaseOptions = async (req, res) => {
     where: {
       companyId: req.auth.companyId,
       status: true,
-      purchaseNumber: { not: null },
+      purchaseNumber: { not: "" },
     },
-    distinct: ["purchaseNumber"],
     select: {
       purchaseNumber: true,
       supplierName: true,
       invoiceDate: true,
+      createdAt: true,
     },
     orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
   });
 
-  return res.json({
-    purchases: rows.map((row) => ({
-      purchaseNumber: row.purchaseNumber,
+  const seenPurchaseNumbers = new Set();
+  const purchases = [];
+  for (const row of rows) {
+    const purchaseNumber = String(row.purchaseNumber || "").trim();
+    if (!purchaseNumber || seenPurchaseNumbers.has(purchaseNumber)) continue;
+    seenPurchaseNumbers.add(purchaseNumber);
+    purchases.push({
+      purchaseNumber,
       supplierName: row.supplierName || "",
       invoiceDate: row.invoiceDate,
-    })),
+    });
+  }
+
+  return res.json({
+    purchases,
   });
 };
 
