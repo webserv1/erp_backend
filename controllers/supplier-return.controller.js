@@ -62,6 +62,13 @@ const formatSupplierAddress = (supplier) =>
     .filter((part) => !!String(part || "").trim())
     .join(", ");
 
+const calculateNetTotalPurchaseAmount = (items) =>
+  Number(
+    items
+      .reduce((sum, item) => sum + (Number(item.totalPurchaseAmount) || 0), 0)
+      .toFixed(2),
+  );
+
 const loadProductMetaByCodes = async (companyId, productCodes) => {
   const products = await prisma.product.findMany({
     where: { companyId, productCode: { in: productCodes } },
@@ -201,6 +208,7 @@ const buildPurchaseDetails = async (companyId, purchaseNumber) => {
         Number(calculateTotalPurchaseAmount(line.quantity, line.unit, line.purchasePrice).toFixed(2)),
     };
   });
+  const netTotalPurchaseAmount = calculateNetTotalPurchaseAmount(items);
 
   return {
     purchaseNumber: first.purchaseNumber,
@@ -209,6 +217,7 @@ const buildPurchaseDetails = async (companyId, purchaseNumber) => {
     supplierAddress: first.supplier ? formatSupplierAddress(first.supplier) : "",
     invoiceDate: first.invoiceDate,
     paymentStatus: first.supplier?.paymentStatus || "UNPAID",
+    netTotalPurchaseAmount,
     items,
   };
 };
@@ -350,10 +359,13 @@ exports.create = async (req, res) => {
 
   const parsedInvoiceDate = parseDate(invoiceDate);
   if (!parsedInvoiceDate) throw new AppError(400, "Invoice date is required.");
+  if (!purchaseNumber || !String(purchaseNumber).trim()) {
+    throw new AppError(400, "Purchase number is required.");
+  }
   if (!supplierName || !String(supplierName).trim()) throw new AppError(400, "Supplier name is required.");
   if (!supplierAddress || !String(supplierAddress).trim()) throw new AppError(400, "Supplier address is required.");
 
-  const normalizedPurchaseNumber = purchaseNumber ? String(purchaseNumber).trim() : null;
+  const normalizedPurchaseNumber = String(purchaseNumber).trim();
   await ensurePurchaseNumberBelongsToCompany(req.auth.companyId, normalizedPurchaseNumber);
   const normalizedItems = normalizeItems(items);
 
@@ -391,7 +403,8 @@ exports.update = async (req, res) => {
 
   const data = {};
   if (req.body.purchaseNumber !== undefined) {
-    const normalizedPurchaseNumber = req.body.purchaseNumber ? String(req.body.purchaseNumber).trim() : null;
+    const normalizedPurchaseNumber = String(req.body.purchaseNumber || "").trim();
+    if (!normalizedPurchaseNumber) throw new AppError(400, "Purchase number cannot be empty.");
     await ensurePurchaseNumberBelongsToCompany(req.auth.companyId, normalizedPurchaseNumber);
     data.purchaseNumber = normalizedPurchaseNumber;
   }
