@@ -2,6 +2,48 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model SupplierReturn {
+  id                   Int      @id @default(autoincrement())
+  companyId            Int
+  purchaseNumber       String?
+  supplierId           Int?
+  supplierName         String
+  supplierAddress      String
+  invoiceDate          DateTime @db.Date
+  paymentStatus        PaymentStatus @default(UNPAID)
+  returnAmountReceived Float    @default(0)
+  createdById          Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  supplier             Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdBy            User?     @relation("SupplierReturnCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  items                SupplierReturnItem[]
+
+  @@index([companyId, purchaseNumber])
+  @@index([companyId, supplierId])
+  @@index([companyId, invoiceDate])
+}
+
+model SupplierReturnItem {
+  id                    Int      @id @default(autoincrement())
+  supplierReturnId      Int
+  productCode           String
+  productName           String
+  sizeName              String?
+  colorName             String?
+  brandName             String?
+  quantity              Int
+  unit                  SaleUnit @default(PIECES)
+  purchaseAmount        Float    @default(0)
+  totalPurchaseAmount   Float    @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  supplierReturn        SupplierReturn @relation(fields: [supplierReturnId], references: [id], onDelete: Cascade)
+
+  @@index([supplierReturnId])
+}
+
 datasource db {
   provider = "postgresql"
 }
@@ -17,6 +59,7 @@ model Company {
   profitWithdrawals ProfitWithdrawal[]
   salaryEntries SalaryEntry[]
   partyReturns PartyReturn[]
+  supplierReturns SupplierReturn[]
   parties   Party[]
   products  Product[]
   purchases Purchase[]
@@ -81,6 +124,7 @@ model User {
   profitWithdrawalsCreated ProfitWithdrawal[] @relation("ProfitWithdrawalCreatedBy")
   salaryEntriesCreated SalaryEntry[] @relation("SalaryEntryCreatedBy")
   partyReturnsCreated PartyReturn[] @relation("PartyReturnCreatedBy")
+  supplierReturnsCreated SupplierReturn[] @relation("SupplierReturnCreatedBy")
   purchases        Purchase[]
   generatedReports Report[]
   company          Company    @relation(fields: [companyId], references: [id])
@@ -197,6 +241,7 @@ model Supplier {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   purchases Purchase[]
+  supplierReturns SupplierReturn[]
   sales     Sale[]
   company   Company    @relation(fields: [companyId], references: [id])
 
