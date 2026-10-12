@@ -63,6 +63,13 @@ const formatEnteredUnitTotals = ({ pieces, dozens }) => {
   if (dz) return `${dz} DOZEN${dz === 1 ? "" : "S"}`;
   return `${pc} PIECES`;
 };
+const toDozenPieceBreakdown = (pieces) => {
+  const safePieces = Math.max(0, Number(pieces) || 0);
+  return {
+    dozens: Math.floor(safePieces / 12),
+    pieces: safePieces % 12,
+  };
+};
 
 const enrichStocks = async (companyId, stocks) => {
   if (!stocks.length) return [];
@@ -179,7 +186,7 @@ exports.getAll = async (req, res) => {
   if (!products.length) return res.json({ stocks: [] });
 
   const productCodes = products.map((product) => product.productCode);
-  const [sales, purchases, legacyStocks] = await Promise.all([
+  const [sales, purchases, legacyStocks, partyReturnItems] = await Promise.all([
     prisma.sale.findMany({
       where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true },
       select: { productCode: true, quantity: true, unit: true },
@@ -190,28 +197,36 @@ exports.getAll = async (req, res) => {
       orderBy: [{ invoiceDate: "desc" }, { id: "desc" }],
     }),
     prisma.stock.findMany({ where: { companyId: req.auth.companyId, productCode: { in: productCodes } }, select: { id: true, productCode: true, salePrice: true, createdAt: true, updatedAt: true } }),
+    prisma.partyReturnItem.findMany({
+      where: { productCode: { in: productCodes }, partyReturn: { companyId: req.auth.companyId } },
+      select: { productCode: true, quantity: true, unit: true },
+    }),
   ]);
 
-  const qtyOutByCode = sales.reduce((map, sale) => {
+  const soldQtyByCode = sales.reduce((map, sale) => {
     map.set(
       sale.productCode,
       (map.get(sale.productCode) || 0) + toBaseQuantity(sale.quantity, sale.unit),
     );
     return map;
   }, new Map());
-  const qtyOutUnitsByCode = sales.reduce((map, sale) => {
-    if (!map.has(sale.productCode)) {
-      map.set(sale.productCode, { pieces: 0, dozens: 0 });
-    }
-    const units = map.get(sale.productCode);
-    const qty = Number(sale.quantity) || 0;
-    if (String(sale.unit).toUpperCase() === "DOZEN") {
-      units.dozens += qty;
-    } else {
-      units.pieces += qty;
-    }
+  const returnedQtyByCode = partyReturnItems.reduce((map, item) => {
+    map.set(
+      item.productCode,
+      (map.get(item.productCode) || 0) + toBaseQuantity(item.quantity, item.unit),
+    );
     return map;
   }, new Map());
+  const qtyOutByCode = new Map(
+    productCodes.map((productCode) => {
+      const netQtyOut =
+        (soldQtyByCode.get(productCode) || 0) - (returnedQtyByCode.get(productCode) || 0);
+      return [productCode, Math.max(netQtyOut, 0)];
+    }),
+  );
+  const qtyOutUnitsByCode = new Map(
+    productCodes.map((productCode) => [productCode, toDozenPieceBreakdown(qtyOutByCode.get(productCode) || 0)]),
+  );
   const qtyInByCode = purchases.reduce((map, purchase) => {
     map.set(
       purchase.productCode,
