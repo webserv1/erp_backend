@@ -63,12 +63,21 @@ const formatEnteredUnitTotals = ({ pieces, dozens }) => {
   if (dz) return `${dz} DOZEN${dz === 1 ? "" : "S"}`;
   return `${pc} PIECES`;
 };
-const toDozenPieceBreakdown = (pieces) => {
-  const safePieces = Math.max(0, Number(pieces) || 0);
-  return {
-    dozens: Math.floor(safePieces / 12),
-    pieces: safePieces % 12,
-  };
+const subtractUnitTotals = (soldUnits, returnedUnits) => {
+  let dozens = (Number(soldUnits?.dozens) || 0) - (Number(returnedUnits?.dozens) || 0);
+  let pieces = (Number(soldUnits?.pieces) || 0) - (Number(returnedUnits?.pieces) || 0);
+
+  while (pieces < 0 && dozens > 0) {
+    dozens -= 1;
+    pieces += 12;
+  }
+  while (pieces >= 12) {
+    dozens += 1;
+    pieces -= 12;
+  }
+
+  if (dozens < 0) return { dozens: 0, pieces: 0 };
+  return { dozens, pieces: Math.max(pieces, 0) };
 };
 
 const enrichStocks = async (companyId, stocks) => {
@@ -217,15 +226,49 @@ exports.getAll = async (req, res) => {
     );
     return map;
   }, new Map());
+  const returnedQtyUnitsByCode = partyReturnItems.reduce((map, item) => {
+    if (!map.has(item.productCode)) {
+      map.set(item.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(item.productCode);
+    const qty = Number(item.quantity) || 0;
+    if (String(item.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const soldQtyUnitsByCode = sales.reduce((map, sale) => {
+    if (!map.has(sale.productCode)) {
+      map.set(sale.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(sale.productCode);
+    const qty = Number(sale.quantity) || 0;
+    if (String(sale.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const qtyOutUnitsByCode = new Map(
+    productCodes.map((productCode) => [
+      productCode,
+      subtractUnitTotals(
+        soldQtyUnitsByCode.get(productCode) || { pieces: 0, dozens: 0 },
+        returnedQtyUnitsByCode.get(productCode) || { pieces: 0, dozens: 0 },
+      ),
+    ]),
+  );
   const qtyOutByCode = new Map(
     productCodes.map((productCode) => {
+      const unitTotals = qtyOutUnitsByCode.get(productCode) || { pieces: 0, dozens: 0 };
+      const unitBasedQtyOut = (Number(unitTotals.dozens) || 0) * 12 + (Number(unitTotals.pieces) || 0);
       const netQtyOut =
         (soldQtyByCode.get(productCode) || 0) - (returnedQtyByCode.get(productCode) || 0);
-      return [productCode, Math.max(netQtyOut, 0)];
+      return [productCode, Math.max(Math.min(unitBasedQtyOut, Math.max(netQtyOut, 0)), 0)];
     }),
-  );
-  const qtyOutUnitsByCode = new Map(
-    productCodes.map((productCode) => [productCode, toDozenPieceBreakdown(qtyOutByCode.get(productCode) || 0)]),
   );
   const qtyInByCode = purchases.reduce((map, purchase) => {
     map.set(
