@@ -12,6 +12,7 @@ model SupplierReturn {
   invoiceDate          DateTime @db.Date
   paymentStatus        PaymentStatus @default(UNPAID)
   returnAmountReceived Float    @default(0)
+  reason               String?
   createdById          Int?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

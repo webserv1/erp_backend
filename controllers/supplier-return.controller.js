@@ -15,6 +15,7 @@ const PUBLIC_SUPPLIER_RETURN_FIELDS = {
   invoiceDate: true,
   paymentStatus: true,
   returnAmountReceived: true,
+  reason: true,
   createdById: true,
   createdAt: true,
   updatedAt: true,
@@ -354,6 +355,7 @@ exports.create = async (req, res) => {
     invoiceDate,
     paymentStatus,
     returnAmountReceived,
+    reason,
     items,
   } = req.body;
 
@@ -364,6 +366,7 @@ exports.create = async (req, res) => {
   }
   if (!supplierName || !String(supplierName).trim()) throw new AppError(400, "Supplier name is required.");
   if (!supplierAddress || !String(supplierAddress).trim()) throw new AppError(400, "Supplier address is required.");
+  if (!reason || !String(reason).trim()) throw new AppError(400, "Reason for return is required.");
 
   const normalizedPurchaseNumber = String(purchaseNumber).trim();
   await ensurePurchaseNumberBelongsToCompany(req.auth.companyId, normalizedPurchaseNumber);
@@ -379,6 +382,7 @@ exports.create = async (req, res) => {
       invoiceDate: parsedInvoiceDate,
       paymentStatus: normalizePaymentStatus(paymentStatus),
       returnAmountReceived: toNonNegativeNumber(returnAmountReceived, "Return amount received"),
+      reason: String(reason).trim(),
       createdById: req.auth.sub,
       items: { create: normalizedItems },
     },
@@ -432,6 +436,10 @@ exports.update = async (req, res) => {
       req.body.returnAmountReceived,
       "Return amount received",
     );
+  }
+  if (req.body.reason !== undefined) {
+    if (!String(req.body.reason).trim()) throw new AppError(400, "Reason cannot be empty.");
+    data.reason = String(req.body.reason).trim();
   }
 
   const normalizedItems = req.body.items !== undefined ? normalizeItems(req.body.items) : null;

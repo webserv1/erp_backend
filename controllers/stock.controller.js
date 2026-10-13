@@ -75,6 +75,15 @@ const subtractUnitTotals = (soldUnits, returnedUnits) => {
   if (dozens < 0) return { dozens: 0, pieces: 0 };
   return { dozens, pieces: Math.max(pieces, 0) };
 };
+const summarizeReturnsBySource = (sourceLabel, units, reasons) => {
+  const quantityText = formatEnteredUnitTotals(units);
+  if (quantityText === "0 PIECES") return null;
+  const safeReasons = [...new Set((reasons || []).map((reason) => String(reason || "").trim()).filter(Boolean))];
+  return {
+    returns: `${quantityText} (${sourceLabel})`,
+    reason: safeReasons.length ? `${safeReasons.join(", ")} (${sourceLabel})` : `— (${sourceLabel})`,
+  };
+};
 
 const enrichStocks = async (companyId, stocks) => {
   if (!stocks.length) return [];
@@ -191,7 +200,7 @@ exports.getAll = async (req, res) => {
   if (!products.length) return res.json({ stocks: [] });
 
   const productCodes = products.map((product) => product.productCode);
-  const [sales, purchases, legacyStocks, partyReturnItems] = await Promise.all([
+  const [sales, purchases, legacyStocks, partyReturnItems, supplierReturnItems] = await Promise.all([
     prisma.sale.findMany({
       where: { companyId: req.auth.companyId, productCode: { in: productCodes }, status: true },
       select: { productCode: true, quantity: true, unit: true },
@@ -204,7 +213,21 @@ exports.getAll = async (req, res) => {
     prisma.stock.findMany({ where: { companyId: req.auth.companyId, productCode: { in: productCodes } }, select: { id: true, productCode: true, salePrice: true, createdAt: true, updatedAt: true } }),
     prisma.partyReturnItem.findMany({
       where: { productCode: { in: productCodes }, partyReturn: { companyId: req.auth.companyId } },
-      select: { productCode: true, quantity: true, unit: true },
+      select: {
+        productCode: true,
+        quantity: true,
+        unit: true,
+        partyReturn: { select: { reason: true } },
+      },
+    }),
+    prisma.supplierReturnItem.findMany({
+      where: { productCode: { in: productCodes }, supplierReturn: { companyId: req.auth.companyId } },
+      select: {
+        productCode: true,
+        quantity: true,
+        unit: true,
+        supplierReturn: { select: { reason: true } },
+      },
     }),
   ]);
 
@@ -266,6 +289,44 @@ exports.getAll = async (req, res) => {
       return [productCode, Math.max(Math.min(unitBasedQtyOut, Math.max(netQtyOut, 0)), 0)];
     }),
   );
+  const partyReturnUnitsByCode = partyReturnItems.reduce((map, item) => {
+    if (!map.has(item.productCode)) {
+      map.set(item.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(item.productCode);
+    const qty = Number(item.quantity) || 0;
+    if (String(item.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const supplierReturnUnitsByCode = supplierReturnItems.reduce((map, item) => {
+    if (!map.has(item.productCode)) {
+      map.set(item.productCode, { pieces: 0, dozens: 0 });
+    }
+    const units = map.get(item.productCode);
+    const qty = Number(item.quantity) || 0;
+    if (String(item.unit).toUpperCase() === "DOZEN") {
+      units.dozens += qty;
+    } else {
+      units.pieces += qty;
+    }
+    return map;
+  }, new Map());
+  const partyReturnReasonsByCode = partyReturnItems.reduce((map, item) => {
+    if (!map.has(item.productCode)) map.set(item.productCode, []);
+    const reason = String(item.partyReturn?.reason || "").trim();
+    if (reason) map.get(item.productCode).push(reason);
+    return map;
+  }, new Map());
+  const supplierReturnReasonsByCode = supplierReturnItems.reduce((map, item) => {
+    if (!map.has(item.productCode)) map.set(item.productCode, []);
+    const reason = String(item.supplierReturn?.reason || "").trim();
+    if (reason) map.get(item.productCode).push(reason);
+    return map;
+  }, new Map());
   const qtyInByCode = purchases.reduce((map, purchase) => {
     map.set(
       purchase.productCode,
@@ -340,6 +401,17 @@ exports.getAll = async (req, res) => {
       pieces: 0,
       dozens: 0,
     };
+    const partyReturnSummary = summarizeReturnsBySource(
+      "party",
+      partyReturnUnitsByCode.get(product.productCode) || { pieces: 0, dozens: 0 },
+      partyReturnReasonsByCode.get(product.productCode) || [],
+    );
+    const supplierReturnSummary = summarizeReturnsBySource(
+      "supplier",
+      supplierReturnUnitsByCode.get(product.productCode) || { pieces: 0, dozens: 0 },
+      supplierReturnReasonsByCode.get(product.productCode) || [],
+    );
+    const returnsSummaries = [partyReturnSummary, supplierReturnSummary].filter(Boolean);
     const latestPurchasePrice = latestPurchase
       ? Number(latestPurchase.purchasePrice) || 0
       : product.purchasePrice === null
@@ -358,6 +430,8 @@ exports.getAll = async (req, res) => {
       qtyOutDisplay: formatQuantityBreakdown(qtyOut),
       qtyOutUnitDisplay: formatEnteredUnitTotals(qtyOutUnits),
       balanceStockDisplay: formatQuantityBreakdown(balanceStock),
+      returns: returnsSummaries.map((entry) => entry.returns).join(", ") || "—",
+      returnReason: returnsSummaries.map((entry) => entry.reason).join(", ") || "—",
       latestQtyIn,
       latestQtyInDisplay: formatQuantityBreakdown(latestQtyIn),
       latestQtyInUnitDisplay: latestPurchase
