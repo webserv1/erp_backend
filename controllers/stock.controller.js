@@ -71,10 +71,6 @@ const subtractUnitTotals = (soldUnits, returnedUnits) => {
     dozens -= 1;
     pieces += 12;
   }
-  while (pieces >= 12) {
-    dozens += 1;
-    pieces -= 12;
-  }
 
   if (dozens < 0) return { dozens: 0, pieces: 0 };
   return { dozens, pieces: Math.max(pieces, 0) };
