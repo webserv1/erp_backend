@@ -84,6 +84,13 @@ const summarizeReturnsBySource = (sourceLabel, units, reasons) => {
     reason: safeReasons.length ? `${safeReasons.join(", ")} (${sourceLabel})` : `— (${sourceLabel})`,
   };
 };
+const toUnitTotalsFromPieces = (pieces) => {
+  const safePieces = Math.max(0, Number(pieces) || 0);
+  return {
+    dozens: Math.floor(safePieces / 12),
+    pieces: safePieces % 12,
+  };
+};
 
 const enrichStocks = async (companyId, stocks) => {
   if (!stocks.length) return [];
@@ -327,27 +334,42 @@ exports.getAll = async (req, res) => {
     if (reason) map.get(item.productCode).push(reason);
     return map;
   }, new Map());
-  const qtyInByCode = purchases.reduce((map, purchase) => {
+  const supplierReturnedQtyByCode = supplierReturnItems.reduce((map, item) => {
     map.set(
-      purchase.productCode,
-      (map.get(purchase.productCode) || 0) +
-        toBaseQuantity(purchase.quantity, purchase.unit),
+      item.productCode,
+      (map.get(item.productCode) || 0) + toBaseQuantity(item.quantity, item.unit),
     );
     return map;
   }, new Map());
-  const qtyInUnitsByCode = purchases.reduce((map, purchase) => {
-    if (!map.has(purchase.productCode)) {
-      map.set(purchase.productCode, { pieces: 0, dozens: 0 });
-    }
-    const units = map.get(purchase.productCode);
-    const qty = Number(purchase.quantity) || 0;
-    if (String(purchase.unit).toUpperCase() === "DOZEN") {
-      units.dozens += qty;
-    } else {
-      units.pieces += qty;
-    }
+  const purchasesByCode = purchases.reduce((map, purchase) => {
+    if (!map.has(purchase.productCode)) map.set(purchase.productCode, []);
+    map.get(purchase.productCode).push(purchase);
     return map;
   }, new Map());
+  const adjustedPurchasePiecesByCode = new Map();
+  const qtyInByCode = new Map();
+  const qtyInUnitsByCode = new Map();
+  productCodes.forEach((productCode) => {
+    const purchaseRows = purchasesByCode.get(productCode) || [];
+    let remainingReturnPieces = supplierReturnedQtyByCode.get(productCode) || 0;
+    const adjustedRows = purchaseRows.map((row) => {
+      const linePieces = toBaseQuantity(row.quantity, row.unit);
+      const consumed = Math.min(linePieces, remainingReturnPieces);
+      remainingReturnPieces -= consumed;
+      return {
+        ...row,
+        adjustedPieces: Math.max(linePieces - consumed, 0),
+      };
+    });
+    adjustedPurchasePiecesByCode.set(productCode, adjustedRows);
+
+    const totalAdjustedPieces = adjustedRows.reduce(
+      (sum, row) => sum + (Number(row.adjustedPieces) || 0),
+      0,
+    );
+    qtyInByCode.set(productCode, totalAdjustedPieces);
+    qtyInUnitsByCode.set(productCode, toUnitTotalsFromPieces(totalAdjustedPieces));
+  });
   const latestPurchaseByCode = new Map();
   const previousPurchaseByCode = new Map();
   const previousPurchasePriceByCode = new Map();
@@ -386,13 +408,12 @@ exports.getAll = async (req, res) => {
     const qtyOut = qtyOutByCode.get(product.productCode) || 0;
     const balanceStock = qtyIn - qtyOut;
     const latestPurchase = latestPurchaseByCode.get(product.productCode);
-    const latestQtyIn = latestPurchase
-      ? toBaseQuantity(latestPurchase.quantity, latestPurchase.unit)
-      : 0;
+    const adjustedPurchaseRows = adjustedPurchasePiecesByCode.get(product.productCode) || [];
+    const latestAdjustedPieces = adjustedPurchaseRows[0]?.adjustedPieces || 0;
+    const previousAdjustedPieces = adjustedPurchaseRows[1]?.adjustedPieces || 0;
+    const latestQtyIn = latestAdjustedPieces;
     const previousPurchase = previousPurchaseByCode.get(product.productCode);
-    const previousQtyIn = previousPurchase
-      ? toBaseQuantity(previousPurchase.quantity, previousPurchase.unit)
-      : 0;
+    const previousQtyIn = previousAdjustedPieces;
     const qtyInUnits = qtyInUnitsByCode.get(product.productCode) || {
       pieces: 0,
       dozens: 0,
@@ -434,13 +455,11 @@ exports.getAll = async (req, res) => {
       returnReason: returnsSummaries.map((entry) => entry.reason).join(", ") || "—",
       latestQtyIn,
       latestQtyInDisplay: formatQuantityBreakdown(latestQtyIn),
-      latestQtyInUnitDisplay: latestPurchase
-        ? `${latestPurchase.quantity} ${String(latestPurchase.unit).toUpperCase()}`
-        : "0 PIECES",
+      latestQtyInUnitDisplay: formatEnteredUnitTotals(toUnitTotalsFromPieces(latestQtyIn)),
       previousQtyIn,
       previousQtyInDisplay: formatQuantityBreakdown(previousQtyIn),
       previousQtyInUnitDisplay: previousPurchase
-        ? `${previousPurchase.quantity} ${String(previousPurchase.unit).toUpperCase()}`
+        ? formatEnteredUnitTotals(toUnitTotalsFromPieces(previousQtyIn))
         : null,
       latestPurchasePrice,
       previousPurchasePrice,

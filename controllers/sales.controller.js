@@ -504,7 +504,7 @@ const validateAvailableQuantity = async (
     saleWhere.NOT = { id: existingId };
   }
 
-  const [purchases, sales, partyReturnItems] = await Promise.all([
+  const [purchases, sales, partyReturnItems, supplierReturnItems] = await Promise.all([
     prisma.purchase.findMany({
       where: { companyId, status: true, productCode: { in: productCodes } },
       select: { productCode: true, quantity: true, unit: true },
@@ -520,9 +520,23 @@ const validateAvailableQuantity = async (
       },
       select: { productCode: true, quantity: true, unit: true },
     }),
+    prisma.supplierReturnItem.findMany({
+      where: {
+        productCode: { in: productCodes },
+        supplierReturn: { companyId },
+      },
+      select: { productCode: true, quantity: true, unit: true },
+    }),
   ]);
 
   const qtyInByCode = purchases.reduce((map, entry) => {
+    map.set(
+      entry.productCode,
+      (map.get(entry.productCode) || 0) + toBaseQuantity(entry.quantity, entry.unit),
+    );
+    return map;
+  }, new Map());
+  const qtyReturnedToSupplierByCode = supplierReturnItems.reduce((map, entry) => {
     map.set(
       entry.productCode,
       (map.get(entry.productCode) || 0) + toBaseQuantity(entry.quantity, entry.unit),
@@ -554,7 +568,9 @@ const validateAvailableQuantity = async (
   for (const productCode of productCodes) {
     const netQtyOut =
       (qtyOutByCode.get(productCode) || 0) - (qtyReturnedByCode.get(productCode) || 0);
-    const available = (qtyInByCode.get(productCode) || 0) - Math.max(netQtyOut, 0);
+    const qtyInAfterSupplierReturns =
+      (qtyInByCode.get(productCode) || 0) - (qtyReturnedToSupplierByCode.get(productCode) || 0);
+    const available = Math.max(qtyInAfterSupplierReturns, 0) - Math.max(netQtyOut, 0);
     const requested = requestedByCode.get(productCode) || 0;
     if (requested > available) {
       throw new AppError(
