@@ -84,12 +84,24 @@ const summarizeReturnsBySource = (sourceLabel, units, reasons) => {
     reason: safeReasons.length ? `${safeReasons.join(", ")} (${sourceLabel})` : `— (${sourceLabel})`,
   };
 };
-const toUnitTotalsFromPieces = (pieces) => {
-  const safePieces = Math.max(0, Number(pieces) || 0);
-  return {
-    dozens: Math.floor(safePieces / 12),
-    pieces: safePieces % 12,
-  };
+const toPurchasedUnitTotals = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.reduce(
+    (totals, row) => {
+      const adjustedPieces = Math.max(0, Number(row?.adjustedPieces) || 0);
+      const normalizedUnit = String(row?.unit || "PIECES").toUpperCase();
+
+      if (normalizedUnit === "DOZEN") {
+        totals.dozens += Math.floor(adjustedPieces / 12);
+        totals.pieces += adjustedPieces % 12;
+        return totals;
+      }
+
+      totals.pieces += adjustedPieces;
+      return totals;
+    },
+    { pieces: 0, dozens: 0 },
+  );
 };
 
 const enrichStocks = async (companyId, stocks) => {
@@ -368,18 +380,14 @@ exports.getAll = async (req, res) => {
       0,
     );
     qtyInByCode.set(productCode, totalAdjustedPieces);
-    qtyInUnitsByCode.set(productCode, toUnitTotalsFromPieces(totalAdjustedPieces));
+    qtyInUnitsByCode.set(productCode, toPurchasedUnitTotals(adjustedRows));
   });
   const latestPurchaseByCode = new Map();
-  const previousPurchaseByCode = new Map();
   const previousPurchasePriceByCode = new Map();
   purchases.forEach((purchase) => {
     if (!latestPurchaseByCode.has(purchase.productCode)) {
       latestPurchaseByCode.set(purchase.productCode, purchase);
       return;
-    }
-    if (!previousPurchaseByCode.has(purchase.productCode)) {
-      previousPurchaseByCode.set(purchase.productCode, purchase);
     }
     if (!previousPurchasePriceByCode.has(purchase.productCode)) {
       previousPurchasePriceByCode.set(
@@ -412,7 +420,8 @@ exports.getAll = async (req, res) => {
     const latestAdjustedPieces = adjustedPurchaseRows[0]?.adjustedPieces || 0;
     const previousAdjustedPieces = adjustedPurchaseRows[1]?.adjustedPieces || 0;
     const latestQtyIn = latestAdjustedPieces;
-    const previousPurchase = previousPurchaseByCode.get(product.productCode);
+    const latestAdjustedRow = adjustedPurchaseRows[0] || null;
+    const previousAdjustedRow = adjustedPurchaseRows[1] || null;
     const previousQtyIn = previousAdjustedPieces;
     const qtyInUnits = qtyInUnitsByCode.get(product.productCode) || {
       pieces: 0,
@@ -455,11 +464,11 @@ exports.getAll = async (req, res) => {
       returnReason: returnsSummaries.map((entry) => entry.reason).join(", ") || "—",
       latestQtyIn,
       latestQtyInDisplay: formatQuantityBreakdown(latestQtyIn),
-      latestQtyInUnitDisplay: formatEnteredUnitTotals(toUnitTotalsFromPieces(latestQtyIn)),
+      latestQtyInUnitDisplay: formatEnteredUnitTotals(toPurchasedUnitTotals([latestAdjustedRow])),
       previousQtyIn,
       previousQtyInDisplay: formatQuantityBreakdown(previousQtyIn),
-      previousQtyInUnitDisplay: previousPurchase
-        ? formatEnteredUnitTotals(toUnitTotalsFromPieces(previousQtyIn))
+      previousQtyInUnitDisplay: previousAdjustedRow
+        ? formatEnteredUnitTotals(toPurchasedUnitTotals([previousAdjustedRow]))
         : null,
       latestPurchasePrice,
       previousPurchasePrice,
