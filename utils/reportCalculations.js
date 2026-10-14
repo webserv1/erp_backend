@@ -1,6 +1,10 @@
 const prisma = require("../lib/prisma");
 const { getReturnAmountSum } = require("./partyReturnCalculations");
 const { getReturnAmountReceivedSum } = require("./supplierReturnCalculations");
+const {
+  buildPartyOutstandingBalances,
+  buildSupplierPayableBalances,
+} = require("./balanceCalculations");
 
 const getWeekRange = () => {
   const now = new Date();
@@ -47,7 +51,7 @@ const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
 
 const buildReportData = async (companyId, periodStart, periodEnd) => {
   const periodWhere = { companyId, createdAt: { gte: periodStart, lte: periodEnd } };
-  const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, partyBalances, supplierPurchaseTotals, supplierRecords, partyReturnedProfit, supplierReturnReceived] = await Promise.all([
+  const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, balanceSales, balancePurchases, supplierRecords, partyReturnedProfit, supplierReturnReceived] = await Promise.all([
     prisma.$queryRaw`
       SELECT
         COUNT(*)::int AS count,
@@ -90,23 +94,37 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
     `,
     prisma.stock.findMany({ where: { companyId, balanceStock: { gte: 18 }, status: true }, select: { id: true, productCode: true, productName: true, balanceStock: true }, orderBy: { balanceStock: "desc" }, take: 10 }),
     buildSalesTrend(companyId, periodStart, periodEnd),
-    prisma.sale.groupBy({ by: ["partyId", "partyName"], where: { companyId, status: true, partyId: { not: null } }, _sum: { remainingAmount: true }, orderBy: { _sum: { remainingAmount: "desc" } } }),
-    prisma.purchase.groupBy({ by: ["supplierId"], where: { companyId, status: true, supplierId: { not: null } }, _sum: { totalPurchaseAmount: true } }),
+    prisma.sale.findMany({
+      where: { companyId, status: true, partyId: { not: null } },
+      select: {
+        id: true,
+        saleNumber: true,
+        partyId: true,
+        partyName: true,
+        remainingAmount: true,
+        createdAt: true,
+      },
+    }),
+    prisma.purchase.findMany({
+      where: { companyId, status: true, supplierId: { not: null } },
+      select: {
+        supplierId: true,
+        supplierName: true,
+        totalPurchaseAmount: true,
+      },
+    }),
     prisma.supplier.findMany({ where: { companyId }, select: { id: true, name: true, paidAmount: true } }),
     getReturnAmountSum(companyId, { returnDate: { gte: periodStart, lte: periodEnd } }),
     getReturnAmountReceivedSum(companyId, { invoiceDate: { gte: periodStart, lte: periodEnd } }),
   ]);
-  const parties = partyBalances.map((party) => ({ id: party.partyId, name: party.partyName || "Unknown Party", balance: Number(party._sum.remainingAmount) || 0 }));
-  const supplierById = new Map(supplierRecords.map((supplier) => [supplier.id, supplier]));
-  const suppliers = supplierPurchaseTotals.map((total) => {
-    const supplier = supplierById.get(total.supplierId);
-    const netTotalPurchaseAmount = Number(total._sum.totalPurchaseAmount) || 0;
-    return {
-      id: total.supplierId,
-      name: supplier?.name || "Unknown Supplier",
-      balance: netTotalPurchaseAmount - (Number(supplier?.paidAmount) || 0),
-    };
-  }).sort((a, b) => b.balance - a.balance);
+  const parties = buildPartyOutstandingBalances(balanceSales).map((party) => ({
+    ...party,
+    balance: party.amount,
+  }));
+  const suppliers = buildSupplierPayableBalances(balancePurchases, supplierRecords).map((supplier) => ({
+    ...supplier,
+    balance: supplier.amount,
+  }));
   const salesSummary = Array.isArray(salesAgg) ? salesAgg[0] : salesAgg;
   const totalSales = Number(salesSummary?.total) || 0;
   const totalPurchases = Number(purchasesAgg._sum.totalPurchaseAmount) || 0;
@@ -125,7 +143,12 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
       totalExpenses -
       (Number(partyReturnedProfit) || 0) +
       (Number(supplierReturnReceived) || 0),
-    balances: { partyOutstanding: parties.reduce((sum, party) => sum + party.balance, 0), supplierPayable: suppliers.reduce((sum, supplier) => sum + supplier.balance, 0), parties, suppliers },
+    balances: {
+      partyOutstanding: Number(parties.reduce((sum, party) => sum + party.balance, 0).toFixed(2)),
+      supplierPayable: Number(suppliers.reduce((sum, supplier) => sum + supplier.balance, 0).toFixed(2)),
+      parties: parties.map(({ amount: ignored, ...party }) => party),
+      suppliers: suppliers.map(({ amount: ignored, ...supplier }) => supplier),
+    },
     salesTrend,
     topProducts: topProducts.map((product) => ({ productCode: product.productCode, productName: product.productName, quantity: Number(product.quantity) || 0, total: Number(product.total) || 0 })),
     topParties: topParties.map((party) => ({ partyId: party.partyId, partyName: party.partyName, total: Number(party.total) || 0 })),
