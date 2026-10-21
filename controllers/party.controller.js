@@ -178,7 +178,8 @@ exports.getAll = async (req, res) => {
 
   const partiesWithProfit = partiesWithTotals.map((party) => ({
     ...party,
-    sales_profit: Number(
+    sales_profit: Number((totalsByParty.get(party.id)?.salesProfit || 0).toFixed(2)),
+    sales_profit_after_return: Number(
       (
         (totalsByParty.get(party.id)?.salesProfit || 0) -
         (returnAmountMap.get(party.id) || 0)
@@ -227,14 +228,12 @@ exports.getById = async (req, res) => {
     getPartyReturnAmountMap(req.auth.companyId, [id]),
   ]);
 
-  partyWithTotals.sales_profit = Number(
-    (
-      (Number(profit._sum.perSaleProfit) || 0) -
-      (returnAmountMap.get(id) || 0)
-    ).toFixed(2),
-  );
+  const grossProfit = Number(profit._sum.perSaleProfit) || 0;
+  const returnPaid = returnAmountMap.get(id) || 0;
+  partyWithTotals.sales_profit = Number(grossProfit.toFixed(2));
+  partyWithTotals.sales_profit_after_return = Number((grossProfit - returnPaid).toFixed(2));
   partyWithTotals.sales_loss = Number((Number(loss._sum.perSaleProfit) || 0).toFixed(2));
-  partyWithTotals.return_amount_paid = Number((returnAmountMap.get(id) || 0).toFixed(2));
+  partyWithTotals.return_amount_paid = Number(returnPaid.toFixed(2));
 
   return res.json({ party: partyWithTotals });
 };
