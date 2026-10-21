@@ -131,25 +131,41 @@ exports.getAll = async (req, res) => {
 
   const partyIds = parties.map((p) => p.id);
   const [profits, returnAmountMap] = await Promise.all([
-    prisma.sale.groupBy({
-      by: ["partyId"],
+    prisma.sale.findMany({
       where: {
         companyId: req.auth.companyId,
+        status: true,
         partyId: { in: partyIds },
       },
-      _sum: { perSaleProfit: true },
+      select: {
+        partyId: true,
+        perSaleProfit: true,
+      },
     }),
     getPartyReturnAmountMap(req.auth.companyId, partyIds),
   ]);
-
-  const profitMap = {};
-  for (const row of profits) {
-    profitMap[row.partyId] = Number(row._sum.perSaleProfit) || 0;
-  }
+  const totalsByParty = profits.reduce((map, row) => {
+    if (!Number.isInteger(row.partyId)) return map;
+    const value = Number(row.perSaleProfit) || 0;
+    if (!map.has(row.partyId)) {
+      map.set(row.partyId, { salesProfit: 0, salesLoss: 0 });
+    }
+    const totals = map.get(row.partyId);
+    if (value > 0) totals.salesProfit += value;
+    if (value < 0) totals.salesLoss += value;
+    return map;
+  }, new Map());
 
   const partiesWithProfit = partiesWithTotals.map((party) => ({
     ...party,
-    sales_profit: (profitMap[party.id] || 0) - (returnAmountMap.get(party.id) || 0),
+    sales_profit: Number(
+      (
+        (totalsByParty.get(party.id)?.salesProfit || 0) -
+        (returnAmountMap.get(party.id) || 0)
+      ).toFixed(2),
+    ),
+    sales_loss: Number((totalsByParty.get(party.id)?.salesLoss || 0).toFixed(2)),
+    return_amount_paid: Number((returnAmountMap.get(party.id) || 0).toFixed(2)),
   }));
 
   return res.json({ parties: partiesWithProfit });
@@ -169,19 +185,36 @@ exports.getById = async (req, res) => {
 
   if (req.auth.role !== "ADMIN") return res.json({ party: partyWithTotals });
 
-  const [profit, returnAmountMap] = await Promise.all([
+  const [profit, loss, returnAmountMap] = await Promise.all([
     prisma.sale.aggregate({
       where: {
         companyId: req.auth.companyId,
         partyId: id,
+        status: true,
+        perSaleProfit: { gt: 0 },
+      },
+      _sum: { perSaleProfit: true },
+    }),
+    prisma.sale.aggregate({
+      where: {
+        companyId: req.auth.companyId,
+        partyId: id,
+        status: true,
+        perSaleProfit: { lt: 0 },
       },
       _sum: { perSaleProfit: true },
     }),
     getPartyReturnAmountMap(req.auth.companyId, [id]),
   ]);
 
-  partyWithTotals.sales_profit =
-    (Number(profit._sum.perSaleProfit) || 0) - (returnAmountMap.get(id) || 0);
+  partyWithTotals.sales_profit = Number(
+    (
+      (Number(profit._sum.perSaleProfit) || 0) -
+      (returnAmountMap.get(id) || 0)
+    ).toFixed(2),
+  );
+  partyWithTotals.sales_loss = Number((Number(loss._sum.perSaleProfit) || 0).toFixed(2));
+  partyWithTotals.return_amount_paid = Number((returnAmountMap.get(id) || 0).toFixed(2));
 
   return res.json({ party: partyWithTotals });
 };
