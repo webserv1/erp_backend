@@ -287,12 +287,15 @@ const applyReturnProfitAdjustments = async (companyId, groupedSales) => {
 
   return groupedSales.map((group) => {
     const returnAmount = returnMap.get(group.saleNumber) || 0;
-    const adjustedProfit = Number((Number(group.perSaleProfit || 0) - returnAmount).toFixed(2));
+    const baseProfit = Number(group.perSaleProfit || 0);
+    const adjustedProfit = Number((baseProfit - returnAmount).toFixed(2));
     return {
       ...group,
       returnAmount: Number(returnAmount.toFixed(2)),
-      perSaleProfit: adjustedProfit,
-      persaleprofit: adjustedProfit,
+      perSaleProfit: Number(baseProfit.toFixed(2)),
+      persaleprofit: Number(baseProfit.toFixed(2)),
+      netPerSaleProfit: adjustedProfit,
+      netpersaleprofit: adjustedProfit,
     };
   });
 };
