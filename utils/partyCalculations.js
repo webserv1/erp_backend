@@ -22,12 +22,21 @@ const calculatePartySalesTotals = (sales) => {
         totalPurchase: 0,
         remainingAmount: lineRemaining,
         invoiceNumber: sale.saleNumber || `SALE-${sale.id}`,
+        saleNumber: sale.saleNumber || null,
+        paymentStatus: String(sale.paymentStatus || "UNPAID").toUpperCase(),
       });
     }
 
     const invoice = invoiceKeyMap.get(mapKey);
     invoice.totalPurchase += lineTotal;
     invoice.remainingAmount = Math.max(invoice.remainingAmount, lineRemaining);
+    if (!invoice.saleNumber && sale.saleNumber) {
+      invoice.saleNumber = sale.saleNumber;
+    }
+    const normalizedStatus = String(sale.paymentStatus || "UNPAID").toUpperCase();
+    if (normalizedStatus === "UNPAID" || normalizedStatus === "PARTIAL") {
+      invoice.paymentStatus = normalizedStatus;
+    }
   });
 
   invoiceKeyMap.forEach((invoice) => {
@@ -54,6 +63,7 @@ const calculatePartySalesTotals = (sales) => {
     remainingBalanceMap,
     invoiceCountMap,
     invoiceNumbersMap,
+    invoiceSummaries: [...invoiceKeyMap.values()],
   };
 };
 

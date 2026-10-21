@@ -1,7 +1,7 @@
 const prisma = require("../lib/prisma");
 const AppError = require("../utils/app-error");
 const { calculatePartySalesTotals } = require("../utils/partyCalculations");
-const { getPartyReturnAmountMap } = require("../utils/partyReturnCalculations");
+const { getInvoiceReturnAmountMap, getPartyReturnAmountMap } = require("../utils/partyReturnCalculations");
 
 const normalizeStatus = (status) => {
   if (typeof status === "boolean") return status;
@@ -44,17 +44,37 @@ const withSalesTotals = async (parties, companyId) => {
       unit: true,
       salePrice: true,
       remainingAmount: true,
+      paymentStatus: true,
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
 
-  const { totalPurchaseMap, remainingBalanceMap, invoiceCountMap, invoiceNumbersMap } =
+  const {
+    totalPurchaseMap,
+    remainingBalanceMap,
+    invoiceCountMap,
+    invoiceNumbersMap,
+    invoiceSummaries,
+  } =
     calculatePartySalesTotals(sales);
+  const saleNumbers = invoiceSummaries
+    .map((invoice) => invoice.saleNumber)
+    .filter((saleNumber) => !!saleNumber);
+  const invoiceReturnMap = await getInvoiceReturnAmountMap(companyId, saleNumbers);
+  const remainingAfterReturnMap = invoiceSummaries.reduce((map, invoice) => {
+    const status = String(invoice.paymentStatus || "").toUpperCase();
+    if (status !== "UNPAID" && status !== "PARTIAL") return map;
+    const returnAmount = invoice.saleNumber ? invoiceReturnMap.get(invoice.saleNumber) || 0 : 0;
+    const netRemaining = Math.max((Number(invoice.remainingAmount) || 0) - returnAmount, 0);
+    map.set(invoice.partyId, (map.get(invoice.partyId) || 0) + netRemaining);
+    return map;
+  }, new Map());
 
   return parties.map((party) => ({
     ...party,
     totalPurchase: Number((totalPurchaseMap.get(party.id) || 0).toFixed(2)),
     remainingBalance: Number((remainingBalanceMap.get(party.id) || 0).toFixed(2)),
+    remainingBalanceAfterReturn: Number((remainingAfterReturnMap.get(party.id) || 0).toFixed(2)),
     invoiceCount: invoiceCountMap.get(party.id) || 0,
     invoiceNumbers: invoiceNumbersMap.get(party.id) || [],
   }));
