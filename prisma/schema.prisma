@@ -59,6 +59,7 @@ model Company {
   expenses  Expense[]
   profitWithdrawals ProfitWithdrawal[]
   salaryEntries SalaryEntry[]
+  oldBalances OldBalance[]
   partyReturns PartyReturn[]
   supplierReturns SupplierReturn[]
   parties   Party[]
@@ -124,6 +125,7 @@ model User {
   createdExpenses  Expense[]
   profitWithdrawalsCreated ProfitWithdrawal[] @relation("ProfitWithdrawalCreatedBy")
   salaryEntriesCreated SalaryEntry[] @relation("SalaryEntryCreatedBy")
+  oldBalancesCreated OldBalance[] @relation("OldBalanceCreatedBy")
   partyReturnsCreated PartyReturn[] @relation("PartyReturnCreatedBy")
   supplierReturnsCreated SupplierReturn[] @relation("SupplierReturnCreatedBy")
   purchases        Purchase[]
@@ -219,6 +221,7 @@ model Party {
   partyProfit Float    @default(0)
   company     Company  @relation(fields: [companyId], references: [id])
   sales       Sale[]
+  oldBalances OldBalance[]
   partyReturns PartyReturn[]
 
   @@unique([companyId, mobile])
@@ -498,6 +501,30 @@ model Stock {
   @@unique([companyId, productCode])
   @@index([companyId, sizeId])
   @@index([companyId, status])
+}
+
+model OldBalance {
+  id               Int      @id @default(autoincrement())
+  companyId        Int
+  partyId          Int
+  partyName        String
+  oldBalanceAmount Float    @default(0)
+  qty              Int      @default(1)
+  purchasePrice    Float    @default(0)
+  salePrice        Float    @default(0)
+  profit           Float    @default(0)
+  billUrl          String?
+  createdById      Int?
+  status           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  party            Party    @relation(fields: [partyId], references: [id], onDelete: Cascade)
+  createdBy        User?    @relation("OldBalanceCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([companyId, partyId])
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
 }
 
 model Session {

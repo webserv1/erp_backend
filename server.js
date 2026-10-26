@@ -21,6 +21,7 @@ const partyReturnRoutes = require("./routes/party-return.routes");
 const supplierReturnRoutes = require("./routes/supplier-return.routes");
 const reportRoutes = require("./routes/report.routes");
 const companyProfileRoutes = require("./routes/company-profile.routes");
+const oldBalanceRoutes = require("./routes/old-balance.routes");
 const AppError = require("./utils/app-error");
 const uploadDirectories = require("./config/upload-paths");
 const { getUploadAsset } = require("./utils/upload-asset-store");
@@ -100,6 +101,7 @@ app.use("/api/party-returns", partyReturnRoutes);
 app.use("/api/supplier-returns", supplierReturnRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/company/profile", companyProfileRoutes);
+app.use("/api/old-balances", oldBalanceRoutes);
 
 app.use((req, res, next) => next(new AppError(404, "Route not found.")));
 

@@ -129,7 +129,7 @@ exports.getDashboard = async (req, res) => {
   const todayPurchaseWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
   const todaySaleWhere = { companyId, createdAt: { gte: startOfDay, lte: endOfDay } };
 
-  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, thisMonthExpenses, overallExpenses, lowStockItems, todaySalesProfit, totalSalesProfit, todayPartyReturnProfit, overallPartyReturnProfit, todaySupplierReturnAmount, overallSupplierReturnAmount, balanceSales, balancePurchases, supplierRecords, lastPartySale] =
+  const [totalProducts, totalSuppliers, totalParties, totalSales, todayPurchases, todaySales, thisMonthExpenses, overallExpenses, lowStockItems, todaySalesProfit, totalSalesProfit, todayOldBalanceProfit, totalOldBalanceProfit, todayPartyReturnProfit, overallPartyReturnProfit, todaySupplierReturnAmount, overallSupplierReturnAmount, balanceSales, balancePurchases, supplierRecords, lastPartySale] =
     await Promise.all([
       prisma.product.count({ where: { companyId } }),
       prisma.supplier.count({ where: { companyId } }),
@@ -166,6 +166,18 @@ exports.getDashboard = async (req, res) => {
         where: { companyId },
         _sum: { perSaleProfit: true },
       }) : Promise.resolve(null),
+      isAdmin
+        ? prisma.oldBalance.aggregate({
+            where: { companyId, status: true, createdAt: { gte: startOfDay, lte: endOfDay } },
+            _sum: { profit: true },
+          })
+        : Promise.resolve(null),
+      isAdmin
+        ? prisma.oldBalance.aggregate({
+            where: { companyId, status: true },
+            _sum: { profit: true },
+          })
+        : Promise.resolve(null),
       isAdmin ? getReturnAmountSum(companyId, { returnDate: { gte: startOfDay, lte: endOfDay } }) : Promise.resolve(0),
       isAdmin ? getReturnAmountSum(companyId) : Promise.resolve(0),
       isAdmin
@@ -230,7 +242,8 @@ exports.getDashboard = async (req, res) => {
         ...(isAdmin
           ? {
               salesProfit:
-                (Number(todaySalesProfit._sum.perSaleProfit) || 0) -
+                (Number(todaySalesProfit._sum.perSaleProfit) || 0) +
+                (Number(todayOldBalanceProfit?._sum?.profit) || 0) -
                 (Number(todayPartyReturnProfit) || 0) +
                 (Number(todaySupplierReturnAmount) || 0),
             }
@@ -239,7 +252,8 @@ exports.getDashboard = async (req, res) => {
       ...(isAdmin
         ? {
             totalSalesProfit:
-              (Number(totalSalesProfit._sum.perSaleProfit) || 0) -
+              (Number(totalSalesProfit._sum.perSaleProfit) || 0) +
+              (Number(totalOldBalanceProfit?._sum?.profit) || 0) -
               (Number(overallPartyReturnProfit) || 0) +
               (Number(overallSupplierReturnAmount) || 0),
           }

@@ -51,7 +51,7 @@ const buildSalesTrend = async (companyId, periodStart, periodEnd) => {
 
 const buildReportData = async (companyId, periodStart, periodEnd) => {
   const periodWhere = { companyId, createdAt: { gte: periodStart, lte: periodEnd } };
-  const [salesAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, balanceSales, balancePurchases, supplierRecords, partyReturnedProfit, supplierReturnReceived] = await Promise.all([
+  const [salesAgg, oldBalanceProfitAgg, purchasesAgg, expensesAgg, topProducts, topParties, lowStock, salesTrend, balanceSales, balancePurchases, supplierRecords, partyReturnedProfit, supplierReturnReceived] = await Promise.all([
     prisma.$queryRaw`
       SELECT
         COUNT(*)::int AS count,
@@ -62,6 +62,10 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
         AND "createdAt" >= ${periodStart}
         AND "createdAt" <= ${periodEnd}
     `,
+    prisma.oldBalance.aggregate({
+      where: { companyId, status: true, createdAt: { gte: periodStart, lte: periodEnd } },
+      _sum: { profit: true },
+    }),
     prisma.purchase.aggregate({ where: periodWhere, _count: { id: true }, _sum: { totalPurchaseAmount: true } }),
     prisma.expense.aggregate({ where: { ...periodWhere, status: true }, _count: { id: true }, _sum: { amount: true } }),
     prisma.$queryRaw`
@@ -130,7 +134,8 @@ const buildReportData = async (companyId, periodStart, periodEnd) => {
   const totalPurchases = Number(purchasesAgg._sum.totalPurchaseAmount) || 0;
   const totalExpenses = Number(expensesAgg._sum.amount) || 0;
   const adjustedSalesProfit =
-    (Number(salesSummary?.profit) || 0) -
+    (Number(salesSummary?.profit) || 0) +
+    (Number(oldBalanceProfitAgg._sum.profit) || 0) -
     (Number(partyReturnedProfit) || 0) +
     (Number(supplierReturnReceived) || 0);
   return {

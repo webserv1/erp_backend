@@ -77,10 +77,14 @@ const ensureSqarsGarmentsCompany = async (companyId) => {
 };
 
 const getProfitSummary = async (companyId) => {
-  const [profitAggregate, withdrawalAggregate] = await Promise.all([
+  const [profitAggregate, oldBalanceProfitAggregate, withdrawalAggregate] = await Promise.all([
     prisma.sale.aggregate({
       where: { companyId, status: true },
       _sum: { perSaleProfit: true },
+    }),
+    prisma.oldBalance.aggregate({
+      where: { companyId, status: true },
+      _sum: { profit: true },
     }),
     prisma.profitWithdrawal.aggregate({
       where: { companyId },
@@ -88,7 +92,9 @@ const getProfitSummary = async (companyId) => {
     }),
   ]);
 
-  const totalProfit = Number(profitAggregate._sum.perSaleProfit) || 0;
+  const totalProfit =
+    (Number(profitAggregate._sum.perSaleProfit) || 0) +
+    (Number(oldBalanceProfitAggregate._sum.profit) || 0);
   const totalTaken =
     (Number(withdrawalAggregate._sum.sqAmount) || 0) + (Number(withdrawalAggregate._sum.arsAmount) || 0);
 
